@@ -598,7 +598,7 @@ static int kvldbGetMethod(
 ){
     
     printf("kvldbGetMethod start\n");
-    int rc = SQLITE4_OK;
+    int rc = SQLITE4_NOTFOUND;
     printf("rc=  %d\n", rc);
     printf("kvldbGetMethod finish\n");
     return rc;
