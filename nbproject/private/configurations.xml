@@ -59,8 +59,6 @@
           <in>sqlite4rtree.h</in>
         </df>
       </df>
-      <df name="kvldb">
-      </df>
       <df name="lsm-test">
         <in>lsmtest.h</in>
         <in>lsmtest1.c</in>
@@ -86,6 +84,240 @@
         <in>sqltest.c</in>
       </df>
       <df name="notes">
+      </df>
+      <df name="SQLite4-LevelDB-storage-engine">
+        <df name="config">
+        </df>
+        <df name="ext">
+          <df name="fts1">
+            <in>ft_hash.c</in>
+            <in>ft_hash.h</in>
+            <in>fts1.c</in>
+            <in>fts1.h</in>
+            <in>fts1_hash.c</in>
+            <in>fts1_hash.h</in>
+            <in>fts1_porter.c</in>
+            <in>fts1_tokenizer.h</in>
+            <in>fts1_tokenizer1.c</in>
+            <in>fulltext.c</in>
+            <in>fulltext.h</in>
+            <in>simple_tokenizer.c</in>
+            <in>tokenizer.h</in>
+          </df>
+          <df name="fts2">
+            <in>fts2.c</in>
+            <in>fts2.h</in>
+            <in>fts2_hash.c</in>
+            <in>fts2_hash.h</in>
+            <in>fts2_icu.c</in>
+            <in>fts2_porter.c</in>
+            <in>fts2_tokenizer.c</in>
+            <in>fts2_tokenizer.h</in>
+            <in>fts2_tokenizer1.c</in>
+          </df>
+          <df name="fts3">
+            <in>fts3.c</in>
+            <in>fts3.h</in>
+            <in>fts3Int.h</in>
+            <in>fts3_aux.c</in>
+            <in>fts3_expr.c</in>
+            <in>fts3_hash.c</in>
+            <in>fts3_hash.h</in>
+            <in>fts3_icu.c</in>
+            <in>fts3_porter.c</in>
+            <in>fts3_snippet.c</in>
+            <in>fts3_term.c</in>
+            <in>fts3_test.c</in>
+            <in>fts3_tokenizer.c</in>
+            <in>fts3_tokenizer.h</in>
+            <in>fts3_tokenizer1.c</in>
+            <in>fts3_write.c</in>
+          </df>
+          <df name="icu">
+            <in>icu.c</in>
+            <in>sqliteicu.h</in>
+          </df>
+          <df name="rtree">
+            <in>rtree.c</in>
+            <in>rtree.h</in>
+            <in>sqlite4rtree.h</in>
+          </df>
+        </df>
+        <df name="lsm-test">
+          <in>lsmtest.h</in>
+          <in>lsmtest1.c</in>
+          <in>lsmtest2.c</in>
+          <in>lsmtest3.c</in>
+          <in>lsmtest4.c</in>
+          <in>lsmtest5.c</in>
+          <in>lsmtest6.c</in>
+          <in>lsmtest7.c</in>
+          <in>lsmtest8.c</in>
+          <in>lsmtest9.c</in>
+          <in>lsmtest_datasource.c</in>
+          <in>lsmtest_func.c</in>
+          <in>lsmtest_io.c</in>
+          <in>lsmtest_main.c</in>
+          <in>lsmtest_mem.c</in>
+          <in>lsmtest_tdb.c</in>
+          <in>lsmtest_tdb.h</in>
+          <in>lsmtest_tdb2.cc</in>
+          <in>lsmtest_tdb3.c</in>
+          <in>lsmtest_tdb4.c</in>
+          <in>lsmtest_util.c</in>
+          <in>sqltest.c</in>
+        </df>
+        <df name="notes">
+        </df>
+        <df name="src">
+          <in>alter.c</in>
+          <in>analyze.c</in>
+          <in>attach.c</in>
+          <in>auth.c</in>
+          <in>bt.h</in>
+          <in>btInt.h</in>
+          <in>bt_lock.c</in>
+          <in>bt_log.c</in>
+          <in>bt_main.c</in>
+          <in>bt_pager.c</in>
+          <in>bt_unix.c</in>
+          <in>bt_varint.c</in>
+          <in>build.c</in>
+          <in>c.h</in>
+          <in>callback.c</in>
+          <in>complete.c</in>
+          <in>ctime.c</in>
+          <in>date.c</in>
+          <in>delete.c</in>
+          <in>env.c</in>
+          <in>expr.c</in>
+          <in>fault.c</in>
+          <in>fkey.c</in>
+          <in>fts5.c</in>
+          <in>fts5func.c</in>
+          <in>func.c</in>
+          <in>global.c</in>
+          <in>hash.c</in>
+          <in>hash.h</in>
+          <in>hwtime.h</in>
+          <in>insert.c</in>
+          <in>kv.c</in>
+          <in>kv.h</in>
+          <in>kvbt.c</in>
+          <in>kvldb.c</in>
+          <in>kvldb.h</in>
+          <in>kvlsm.c</in>
+          <in>kvmem.c</in>
+          <in>legacy.c</in>
+          <in>lempar.c</in>
+          <in>lsm.h</in>
+          <in>lsmInt.h</in>
+          <in>lsm_ckpt.c</in>
+          <in>lsm_file.c</in>
+          <in>lsm_log.c</in>
+          <in>lsm_main.c</in>
+          <in>lsm_mem.c</in>
+          <in>lsm_mutex.c</in>
+          <in>lsm_shared.c</in>
+          <in>lsm_sorted.c</in>
+          <in>lsm_str.c</in>
+          <in>lsm_tree.c</in>
+          <in>lsm_unix.c</in>
+          <in>lsm_varint.c</in>
+          <in>main.c</in>
+          <in>malloc.c</in>
+          <in>math.c</in>
+          <in>mem.c</in>
+          <in>mem.h</in>
+          <in>mem0.c</in>
+          <in>mem1.c</in>
+          <in>mem2.c</in>
+          <in>mem3.c</in>
+          <in>mem5.c</in>
+          <in>mutex.c</in>
+          <in>mutex.h</in>
+          <in>mutex_noop.c</in>
+          <in>mutex_unix.c</in>
+          <in>mutex_w32.c</in>
+          <in>os.c</in>
+          <in>os.h</in>
+          <in>pragma.c</in>
+          <in>prepare.c</in>
+          <in>printf.c</in>
+          <in>random.c</in>
+          <in>resolve.c</in>
+          <in>rowset.c</in>
+          <in>select.c</in>
+          <in>shell.c</in>
+          <in>sqlite4.h</in>
+          <in>sqliteInt.h</in>
+          <in>sqliteLimit.h</in>
+          <in>status.c</in>
+          <in>tclsqlite.c</in>
+          <in>tokenize.c</in>
+          <in>trigger.c</in>
+          <in>update.c</in>
+          <in>utf.c</in>
+          <in>util.c</in>
+          <in>varint.c</in>
+          <in>vdbe.c</in>
+          <in>vdbe.h</in>
+          <in>vdbeInt.h</in>
+          <in>vdbeapi.c</in>
+          <in>vdbeaux.c</in>
+          <in>vdbecodec.c</in>
+          <in>vdbecursor.c</in>
+          <in>vdbemem.c</in>
+          <in>vdbetrace.c</in>
+          <in>walker.c</in>
+          <in>where.c</in>
+        </df>
+        <df name="test">
+          <in>crashtest1.c</in>
+          <in>testInt.h</in>
+          <in>test_auth.c</in>
+          <in>test_bt.c</in>
+          <in>test_config.c</in>
+          <in>test_func.c</in>
+          <in>test_hexio.c</in>
+          <in>test_kv.c</in>
+          <in>test_kv2.c</in>
+          <in>test_lsm.c</in>
+          <in>test_main.c</in>
+          <in>test_malloc.c</in>
+          <in>test_mem.c</in>
+          <in>test_misc1.c</in>
+          <in>test_mutex.c</in>
+          <in>test_num.c</in>
+          <in>test_thread.c</in>
+          <in>test_thread0.c</in>
+          <in>test_utf.c</in>
+          <in>test_wsd.c</in>
+          <in>tt3_checkpoint.c</in>
+        </df>
+        <df name="testDB">
+        </df>
+        <df name="tool">
+          <in>diffdb.c</in>
+          <in>extract.c</in>
+          <in>lemon.c</in>
+          <in>lempar.c</in>
+          <in>lsmheader.c</in>
+          <in>mkkeywordhash.c</in>
+          <in>rollback-test.c</in>
+          <in>speedtest16.c</in>
+          <in>speedtest8.c</in>
+          <in>speedtest8inst1.c</in>
+        </df>
+        <df name="www">
+        </df>
+        <in>keywordhash.h</in>
+        <in>lempar.c</in>
+        <in>opcodes.c</in>
+        <in>opcodes.h</in>
+        <in>parse.c</in>
+        <in>parse.h</in>
+        <in>sqlite4.h</in>
       </df>
       <df name="src">
         <in>alter.c</in>
@@ -263,6 +495,8 @@
         <gdb_interceptlist>
           <gdbinterceptoptions gdb_all="false" gdb_unhandled="true" gdb_unexpected="true"/>
         </gdb_interceptlist>
+        <gdb_signals>
+        </gdb_signals>
         <gdb_options>
           <DebugOptions>
           </DebugOptions>

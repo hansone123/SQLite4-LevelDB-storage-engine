@@ -374,7 +374,10 @@ static int kvldbSeek(
                 }
             }else {
                 leveldb_iter_seek_to_last(pCsr->pCsr);
-                rc = SQLITE4_INEXACT;
+                if( leveldb_iter_valid(pCsr->pCsr))
+                    rc = SQLITE4_INEXACT;
+                else
+                    rc = SQLITE4_NOTFOUND;
             }
             
             break;
