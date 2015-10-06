@@ -1,0 +1,99 @@
+# 2014 February 19
+#
+# The author disclaims copyright to this source code.  In place of
+# a legal notice, here is a blessing:
+#
+#    May you do good and not evil.
+#    May you find forgiveness for yourself and forgive others.
+#    May you share freely, never taking more than you give.
+#
+#***********************************************************************
+#
+# This file contains tests that verify that the bt backend can recover
+# data from the types of log files that might be left in the file-system
+# following a power failure.
+#
+
+set testdir [file dirname $argv0]
+source $testdir/tester.tcl
+source $testdir/malloc_common.tcl
+set ::testprefix recover1
+
+
+#-------------------------------------------------------------------------
+#   crashsql2 ?-wal? N SQL
+#
+# Open the database and execute the SQL script, with crash simulation on
+# the N'th sync of either the log or database file, depending on whether
+# or not the "-wal" switch is present.
+#
+proc crashsql2 {args} {
+  set bWal 0
+  set nSync 0
+
+  if {([llength $args]!=2)
+   && ([llength $args]!=3 || 0==[string match [lindex $args 0]* "-wal"])
+  } {
+    error "should be: crashsql2 ?-wal? N SQL"
+  }
+
+  set bWal [expr {[llength $args]==3}]
+  set nSync [lindex $args [expr [llength $args] - 2]]
+  set sql [lindex $args [expr [llength $args] - 1]]
+
+  sqlite4 dbc test.db
+  btenv crashenv 
+  crashenv attach dbc
+  crashenv crash $nSync $bWal
+
+  catch { dbc eval $sql } msg
+  dbc close
+  set ret [crashenv crash 0 0]
+  crashenv delete
+  return $ret
+}
+
+proc checkdb {} {
+  db one { SELECT (SELECT x FROM sum)==(SELECT md5sum(a, b) FROM t1); }
+}
+
+do_execsql_test 1.0 {
+  CREATE TABLE t1(a, b);
+  CREATE TABLE sum(x);
+
+  INSERT INTO t1 VALUES(randomblob(200), randomblob(200));
+  INSERT INTO t1 SELECT randomblob(200), randomblob(200) FROM t1;
+  INSERT INTO t1 SELECT randomblob(200), randomblob(200) FROM t1;
+  INSERT INTO t1 SELECT randomblob(200), randomblob(200) FROM t1;
+  INSERT INTO sum SELECT md5sum(a, b) FROM t1;
+}
+do_test 1.1 { checkdb } 1
+
+for {set i 1} {$i<25} {incr i} {
+  set nRow [db one {SELECT count(*) FROM t1}]
+  db close
+
+  do_test 1.2.$i.1 {
+    crashsql2 1 {
+      BEGIN;
+      INSERT INTO t1 SELECT randomblob(200), randomblob(200) FROM t1;
+      UPDATE sum SET x = (SELECT md5sum(a, b) FROM t1);
+      COMMIT;
+      PRAGMA main.checkpoint = 1;
+    }
+  } {1}
+
+  do_test 1.2.$i.2 { 
+    sqlite4 db test.db
+    checkdb 
+  } 1
+
+  do_execsql_test 1.2.$i.3 { SELECT count(*) FROM t1 } [expr $nRow*2]
+  do_execsql_test 1.2.$i.4 { DELETE FROM t1 WHERE rowid>8 }
+}
+
+finish_test
+
+
+
+

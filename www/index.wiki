@@ -1,0 +1,15 @@
+<title>SQLite4</title>
+
+  *  [./design.wiki | The Design Of SQLite4]
+  *  [./prog-intro.wiki | Introduction to SQLite4 for Programmers]
+  *  [./env.wiki | The Run-time Environment Object]
+  *  [./varint.wiki | The Varint format]
+  *  [./data_encoding.wiki | The Data Encoding]
+  *  [./key_encoding.wiki | The Key Encoding]
+  *  [./decimal.wiki | Internal representation of numeric values]
+  *  [./porting.wiki | Porting an app from SQLite3 to SQLite4]
+  *  [./storage.wiki | How to create a new storage engine]
+  *  [./lsmusr.wiki  | LSM User Manual]
+  *  [./lsmperf.wiki | LSM Benchmarks]
+  *  [./lsmapi.wiki  | LSM API Reference]
+  *  [./bt.wiki      | BT Design]

@@ -1,0 +1,484 @@
+# 2012 May 16
+#
+# The author disclaims copyright to this source code.  In place of
+# a legal notice, here is a blessing:
+#
+#    May you do good and not evil.
+#    May you find forgiveness for yourself and forgive others.
+#    May you share freely, never taking more than you give.
+#
+#***********************************************************************
+# The tests in this file focus on testing test that the LSM log file is 
+# written and recovered correctly.
+#
+
+set testdir [file dirname $argv0]
+source $testdir/tester.tcl
+set testprefix log1
+
+proc filesize {zFile} {
+  if {[file exists $zFile]==0} { return 0 }
+  file size $zFile
+}
+
+proc do_filesize_test {tn dbsz logsz} {
+  uplevel [list do_test $tn { 
+      list [filesize test.db] [filesize test.db-log] 
+  } [list $dbsz $logsz]]
+}
+
+proc copy_db_files {from to} {
+  forcecopy $from $to
+  forcecopy $from-log $to-log
+}
+
+#-------------------------------------------------------------------------
+# Super simple tests:
+#
+# 1.1-2  Test that writing to a database does write data into the log. 
+# 1.3    Test that an existing log file can be opened and recovered. 
+# 1.4-5  Test that an existing log file can be opened, recovered, appended
+#        to, and then recovered again.
+#
+do_execsql_test 1.1 { 
+  CREATE TABLE t1(a, b); 
+  INSERT INTO t1 VALUES(1, 2);
+  INSERT INTO t1 VALUES(3, 4);
+}
+do_filesize_test 1.2    0 112
+
+do_test 1.3 {
+  copy_db_files test.db test.db2
+  sqlite4 db2 test.db2
+  execsql { SELECT * FROM t1 } db2
+} {1 2 3 4}
+
+do_test 1.4 { execsql { INSERT INTO t1 VALUES(5, 6) } db2 } {}
+
+do_test 1.5 {
+  copy_db_files test.db2 test.db3
+  sqlite4 db3 test.db3
+  execsql { SELECT * FROM t1 } db3
+} {1 2 3 4 5 6}
+
+foreach db {db2 db3} { catch {$db close} }
+
+#-------------------------------------------------------------------------
+# Test that recovery is verifying checksums.
+#
+reset_db
+do_execsql_test  2.1 { 
+  CREATE TABLE t1(a, b); 
+  INSERT INTO t1 VALUES('a', 'b');
+  INSERT INTO t1 VALUES('c', 'd');
+  INSERT INTO t1 VALUES('e', 'f');
+}
+do_filesize_test 2.2    0 132
+do_execsql_test  2.3 { 
+  INSERT INTO t1 VALUES('ggggggggggggggggggggggggggggggggggggggggg', 'h');
+}
+do_filesize_test 2.4    0 192
+
+do_test 2.5 {
+  copy_db_files test.db test.db2
+  sqlite4 db2 test.db2
+  execsql { SELECT * FROM t1 } db2
+} {a b c d e f ggggggggggggggggggggggggggggggggggggggggg h}
+
+# Scribble some garbage into the part of the log containing the 'ggggg.'
+# record. Then recover it again. This time, the 'gggg.' transaction should
+# be ignored.
+do_test 2.6 {
+  db2 close
+  copy_db_files test.db test.db2
+  hexio_write test.db2-log 150 5858585858
+  sqlite4 db2 test.db2
+  execsql { SELECT * FROM t1 } db2
+} {a b c d e f}
+
+catch { db2 close }
+
+#-------------------------------------------------------------------------
+# Test recovery of a larger log file.
+#
+reset_db
+do_execsql_test 3.1 {
+  CREATE TABLE t1(a, b);
+  INSERT INTO t1 VALUES(randstr(100,100), randstr(100,100));
+  INSERT INTO t1 SELECT randstr(100,100), randstr(100,100) FROM t1;   --   2
+  INSERT INTO t1 SELECT randstr(100,100), randstr(100,100) FROM t1;   --   4
+  INSERT INTO t1 SELECT randstr(100,100), randstr(100,100) FROM t1;   --   8
+  INSERT INTO t1 SELECT randstr(100,100), randstr(100,100) FROM t1;   --  16
+  INSERT INTO t1 SELECT randstr(100,100), randstr(100,100) FROM t1;   --  32
+  INSERT INTO t1 SELECT randstr(100,100), randstr(100,100) FROM t1;   --  64
+  INSERT INTO t1 SELECT randstr(100,100), randstr(100,100) FROM t1;   -- 128
+  INSERT INTO t1 SELECT randstr(100,100), randstr(100,100) FROM t1;   -- 256
+  SELECT count(*) FROM t1;
+} {256}
+
+do_test 3.2 {
+  set cksum [execsql { SELECT md5sum(a, b) FROM t1 }]
+  copy_db_files test.db test.db2
+} {}
+
+do_test 3.3 {
+  sqlite4 db2 test.db2
+  execsql { SELECT md5sum(a, b) FROM t1 } db2
+} $cksum
+
+do_test 3.4 {
+  execsql { SELECT count(*) FROM t1 } db2
+} {256}
+db2 close
+
+reset_db
+do_execsql_test 3.5 { CREATE TABLE t1(a, b) }
+do_test 3.6 {
+  sqlite4_lsm_checkpoint db main
+  for {set i 0} {$i < 203} {incr i} {
+    execsql { INSERT INTO t1 VALUES(randstr(100,100), randstr(100,100)) }
+  }
+  execsql { SELECT count(*) FROM t1 }
+} {203}
+
+do_test 3.7 {
+  set cksum [execsql { SELECT md5sum(a, b) FROM t1 }]
+  copy_db_files test.db test.db2
+} {}
+
+do_test 3.8 {
+  sqlite4 db2 test.db2
+  execsql { SELECT md5sum(a, b) FROM t1 } db2
+} $cksum
+
+do_test 3.9 {
+  execsql { SELECT count(*) FROM t1 } db2
+} {203}
+db2 close
+
+#-------------------------------------------------------------------------
+#
+reset_db
+do_execsql_test 4.1 {
+  CREATE TABLE t1(a, b);
+  BEGIN;
+    INSERT INTO t1 VALUES(randstr(100,100), randstr(100,100));
+    INSERT INTO t1 VALUES(randstr(100,100), randstr(100,100));
+    INSERT INTO t1 VALUES(randstr(100,100), randstr(100,100));
+    INSERT INTO t1 VALUES(randstr(100,100), randstr(100,100));
+    INSERT INTO t1 VALUES(randstr(100,100), randstr(100,100));
+    INSERT INTO t1 VALUES(randstr(100,100), randstr(100,100));
+    INSERT INTO t1 VALUES(randstr(100,100), randstr(100,100));
+    INSERT INTO t1 VALUES(randstr(100,100), randstr(100,100));
+  COMMIT;
+}
+
+do_test 4.2 {
+  copy_db_files test.db test.db2
+  sqlite4 db2 test.db2
+  execsql { SELECT count(*) FROM t1 } db2
+} {8}
+
+#-------------------------------------------------------------------------
+# Two clients writing to the same log file.
+#
+reset_db
+do_execsql_test 5.1 {
+  CREATE TABLE t1(a, b);
+  BEGIN;
+    INSERT INTO t1 VALUES(randstr(100,100), randstr(100,100));
+    INSERT INTO t1 VALUES(randstr(100,100), randstr(100,100));
+    INSERT INTO t1 VALUES(randstr(100,100), randstr(100,100));
+  COMMIT;
+}
+
+do_test 5.2 {
+  sqlite4 db2 ./test.db
+  execsql {
+    INSERT INTO t1 VALUES(randstr(100,100), randstr(100,100));
+    INSERT INTO t1 VALUES(randstr(100,100), randstr(100,100));
+    SELECT count(*) FROM t1;
+  } db2
+} {5}
+
+do_test 5.3 {
+  copy_db_files test.db test.db2
+  sqlite4 db3 test.db2
+  execsql { SELECT count(*) FROM t1 } db3
+} {5}
+
+catch { db2 close }
+catch { db3 close }
+
+#-------------------------------------------------------------------------
+# Check that a clean shutdown truncates the log file to zero bytes in 
+# size.
+#
+reset_db
+do_execsql_test 6.1 {
+  CREATE TABLE t1(a, b);
+  BEGIN;
+    INSERT INTO t1 VALUES(randstr(100,100), randstr(100,100));
+    INSERT INTO t1 VALUES(randstr(100,100), randstr(100,100));
+    INSERT INTO t1 VALUES(randstr(100,100), randstr(100,100));
+  COMMIT;
+}
+
+do_filesize_test 6.2   0 714
+do_test          6.3 { db close } {}
+do_filesize_test 6.4   12288 0
+
+#-------------------------------------------------------------------------
+#
+reset_db
+do_execsql_test 7.1 {
+  CREATE TABLE x(a PRIMARY KEY, b);
+  INSERT INTO x VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO x VALUES(randstr(10,10), randstr(100,100));
+}
+db close
+do_filesize_test 7.2   12288 0
+
+sqlite4 db test.db
+do_execsql_test 7.3 { SELECT count(*) FROM x } 2
+do_execsql_test 7.4 { INSERT INTO x VALUES(randstr(10,10), randstr(100,100)) }
+
+copy_db_files test.db test.db2
+do_test 7.5 { 
+  sqlite4 db2 test.db2
+  execsql { SELECT count(*) FROM x } db2
+} 3
+catch { db2 close }
+
+#-------------------------------------------------------------------------
+#
+reset_db
+
+# 8.1-8.6: Write data to the database. Then call lsm_work() with 
+#          LSM_WORK_FLUSH specified to flush data to disk. Write to the 
+#          database some more. Then call lsm_work() with LSM_WORK_CHECKPOINT.
+#          If recovery is required at this point, everything from the start
+#          of the log file up until the point where LSM_WORK_FLUSH was invoked
+#          should be ignored.
+#
+# 8.7:     Check that the database can be recovered in its current state.
+# 
+# 8.8:     Damage the first part of the log file. Then check that the db
+#          can still be recovered. This should be possible, as the damaged
+#          part of the log file should not be read anyway.
+#
+do_execsql_test 8.1 {
+  CREATE TABLE x(a PRIMARY KEY, b);
+  INSERT INTO x VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO x VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO x VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO x VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO x VALUES(randstr(10,10), randstr(100,100));
+}
+do_filesize_test 8.2   0 776
+do_test          8.3.1 { sqlite4_lsm_flush db main } {}
+do_test          8.3.2 { sqlite4_lsm_work db main } 0
+do_execsql_test  8.4 { INSERT INTO x VALUES(randstr(10,10), randstr(100,100)) }
+do_filesize_test 8.5   12288 915
+do_test          8.6 { sqlite4_lsm_checkpoint db main } {}
+
+do_test 8.7 {
+  copy_db_files test.db test.db2
+  sqlite4 db2 test.db2
+  execsql { SELECT count(*) FROM x ; PRAGMA integrity_check } db2
+} {6 ok}
+
+do_test 8.8 {
+  db2 close
+  copy_db_files test.db test.db2
+  hexio_write test.db2-log 20 00000000000000
+  sqlite4 db2 test.db2
+  execsql { SELECT count(*) FROM x ; PRAGMA integrity_check } db2
+} {6 ok}
+catch { db2 close }
+
+#-------------------------------------------------------------------------
+#
+# 9.1-9.3: Write some data to the db. Then disconnect so that the log file
+#          is truncated to zero bytes in size.
+#
+# 9.4-9.5: Open the db and write a small amount of data to it. Check that
+#          the new records are written into the start of the log file (not
+#          to the offset that was the end of the log file before it was
+#          truncated).
+#
+# 9.6:     Check that recovery can be run on a db in the state produced
+#          by test case 9.5.
+#
+reset_db
+do_execsql_test 9.1 {
+  CREATE TABLE x(a PRIMARY KEY, b);
+  INSERT INTO x VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO x VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO x VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO x VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO x VALUES(randstr(10,10), randstr(100,100));
+}
+do_filesize_test 9.2   0 776
+db close
+do_filesize_test 9.3   12288 0
+
+sqlite4 db ./test.db
+do_execsql_test  9.4 { INSERT INTO x VALUES(randstr(10,10), randstr(100,100)) }
+do_filesize_test 9.5   12288 139
+
+do_test 9.6 {
+  copy_db_files test.db test.db2
+  sqlite4 db2 ./test.db2
+  execsql { SELECT count(*) FROM x ; PRAGMA integrity_check } db2
+} {6 ok}
+
+catch { db2 close }
+
+#-------------------------------------------------------------------------
+#
+reset_db
+do_execsql_test 10.1 {
+  CREATE TABLE t1(a PRIMARY KEY, b);
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+}
+do_test 10.2 { sqlite4_lsm_info db main log-structure } {0 0 0 0 0 223}
+do_test 10.3 { db close ; sqlite4 db test.db } {}
+do_test 10.4 { sqlite4_lsm_info db main db-structure } {{{3 3 0 1}}}
+do_test 10.5 { sqlite4_lsm_info db main log-structure } {0 0 0 0 0 0}
+
+do_execsql_test 10.6 {
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+}
+do_test 10.7 { sqlite4_lsm_info db main log-structure } {0 0 0 0 0 556}
+do_test 10.8 { sqlite4_lsm_work db main -flush } 0
+do_execsql_test 10.9 {
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+}
+do_test 10.9  { sqlite4_lsm_info db main log-structure } {0 0 0 0 0 695}
+do_test 10.10 { sqlite4_lsm_checkpoint db main } {}
+do_test 10.11 { sqlite4_lsm_info db main log-structure } {0 0 0 0 556 695}
+
+#-------------------------------------------------------------------------
+#
+reset_db
+do_test         11.1 { sqlite4_lsm_config db main log-size 800 } 800
+do_test         11.2 { sqlite4_lsm_config db main log-size     } 800
+do_execsql_test 11.3 {
+  CREATE TABLE t1(a PRIMARY KEY, b);
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+}
+
+do_test 11.4 { sqlite4_lsm_info db main log-structure } {0 0 0 0 0 1335}
+do_test 11.5 { sqlite4_lsm_work db main -flush } 0
+do_execsql_test 11.6 {
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+}
+do_test 11.7 { sqlite4_lsm_info db main log-structure } {0 0 0 0 0 1474}
+do_test 11.8 { sqlite4_lsm_checkpoint db main } {}
+do_test 11.9 { sqlite4_lsm_info db main log-structure } {0 0 0 0 1335 1474}
+do_execsql_test 11.10 {
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+}
+do_test 11.11 { sqlite4_lsm_info db main log-structure } {1335 1482 0 0 0 139}
+do_test 11.12 {
+  execsql { SELECT count(*) FROM t1 ; PRAGMA integrity_check } 
+} {11 ok}
+
+do_test 11.13 {
+  copy_db_files test.db test.db2
+  sqlite4 db2 test.db2
+  execsql { SELECT count(*) FROM t1 ; PRAGMA integrity_check } db2
+} {11 ok}
+do_test 11.14 { sqlite4_lsm_info db2 main log-structure } {1335 1482 0 0 0 139}
+do_test 11.15 {
+  execsql { INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100)) } db2
+  execsql { SELECT count(*) FROM t1 ; PRAGMA integrity_check } db2
+} {12 ok}
+do_test 11.16 {
+  copy_db_files test.db2 test.db3
+  sqlite4 db3 test.db3
+  execsql { SELECT count(*) FROM t1 ; PRAGMA integrity_check } db3
+} {12 ok}
+db2 close
+db3 close
+do_execsql_test 11.17 {
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+}
+do_test 11.18 { 
+  sqlite4_lsm_info db main log-structure 
+} {1335 1482 0 1259 1483 1769}
+do_test 11.19 {
+  execsql { SELECT count(*) FROM t1 ; PRAGMA integrity_check } 
+} {21 ok}
+do_test 11.20 {
+  copy_db_files test.db test.db2
+  sqlite4 db2 test.db2
+  execsql { SELECT count(*) FROM t1 ; PRAGMA integrity_check } db2
+} {21 ok}
+db2 close
+
+do_test 11.21 { sqlite4_lsm_work db main -flush } {0}
+db eval {SELECT randstr(5,5)}
+do_execsql_test 11.22 {
+  INSERT INTO t1 VALUES(randstr(10,10), randstr(100,100));
+}
+do_test 11.23 { 
+  sqlite4_lsm_info db main log-structure 
+} {1335 1482 0 1259 1483 1908}
+do_test 11.24 { sqlite4_lsm_checkpoint db main } {}
+do_test 11.25 { 
+  sqlite4_lsm_info db main log-structure 
+} {0 0 0 0 1769 1908}
+
+#-------------------------------------------------------------------------
+#
+reset_db
+do_test         12.1 { sqlite4_lsm_config db main log-size 800 } 800
+do_execsql_test 12.2 {
+  CREATE TABLE t1(a PRIMARY KEY, b);
+  CREATE INDEX i1 ON t1(b);
+}
+for {set iTest 1} {$iTest<=150} {incr iTest} {
+  expr srand(0)
+  do_test 12.3.$iTest {
+    for {set i 0} {$i < 10} {incr i} {
+      execsql { INSERT INTO t1 VALUES(randstr(20,20), randstr(100,100)) }
+      if { int(rand()*10.0)==0 } { sqlite4_lsm_work db main -flush }
+      if { int(rand()*10.0)==0 } { sqlite4_lsm_checkpoint db main }
+    }
+    copy_db_files test.db test.db2
+    sqlite4 db2 test.db2
+    set sql "SELECT count(*) FROM t1 ; "
+    if {0==($iTest % 25)} {
+      append sql "PRAGMA integrity_check"
+    } else {
+      append sql "SELECT 'ok'"
+    }
+    set res [execsql $sql db2]
+    db2 close
+    set res
+  } [list [expr ($iTest)*10] ok]
+}
+
+finish_test

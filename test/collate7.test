@@ -1,0 +1,141 @@
+#
+# 2007 May 7
+#
+# The author disclaims copyright to this source code.  In place of
+# a legal notice, here is a blessing:
+#
+#    May you do good and not evil.
+#    May you find forgiveness for yourself and forgive others.
+#    May you share freely, never taking more than you give.
+#
+#***********************************************************************
+#
+# This file implements regression tests for SQLite library. The
+# focus of this script is the sqlite4_create_collation() and 
+# collation_needed() APIs. More specifically, the focus is on testing that 
+# destructor callbacks are invoked correctly.
+#
+
+set testdir [file dirname $argv0]
+source $testdir/tester.tcl
+set ::testprefix collate7
+
+
+# Implementation of collation sequence callbacks.
+#
+proc caseless_cmp {zLeft zRight} {
+  string compare -nocase $zLeft $zRight
+}
+proc caseless_mkkey {zIn} {
+  string tolower $zIn
+}
+
+#-------------------------------------------------------------------------
+# Test the destructor is invoked when a collation sequence is overridden.
+#
+do_test 1.1 {
+  set ::caseless_del 0
+  set del [list incr ::caseless_del]
+  sqlite4_create_collation db CASELESS caseless_cmp caseless_mkkey $del
+  set ::caseless_del
+} {0}
+
+do_test 1.2 {
+  set ::caseless_del 0
+  sqlite4_create_collation db CASELESS {} {} {}
+  set ::caseless_del
+} {1}
+
+do_catchsql_test 1.3 { 
+  CREATE TABLE abc(a COLLATE CASELESS, b, c); 
+} {1 {no such collation sequence: CASELESS}}
+
+do_test 1.4 {
+  set ::caseless_del 0
+  sqlite4_create_collation db CASELESS {} {} {}
+  set ::caseless_del
+} {0}
+
+#-------------------------------------------------------------------------
+# Test the destructor is invoked when the database handle is closed.
+#
+do_test 2.1 {
+  set ::caseless_del 0
+  set del [list incr ::caseless_del]
+  sqlite4_create_collation db CASELESS caseless_cmp caseless_mkkey $del
+  db close
+  set ::caseless_del
+} {1}
+
+#-------------------------------------------------------------------------
+# Test the destructor is invoked if an error occurs within
+# sqlite4_create_collation(). The easiest error to provoke here is 
+# SQLITE4_BUSY - which is returned if an attempt is made to override a
+# collation while there are active statements.
+#
+reset_db
+do_test 3.1 {
+  set ::caseless_del 0
+  set del [list incr ::caseless_del]
+  sqlite4_create_collation db CASELESS caseless_cmp caseless_mkkey $del
+  execsql {
+    CREATE TABLE t1(a COLLATE caseless);
+    INSERT INTO t1 VALUES('abc');
+    INSERT INTO t1 VALUES('def');
+  }
+
+  set ::stmt [sqlite4_prepare db "SELECT a FROM t1" -1 DUMMY]
+  sqlite4_step $::stmt
+} {SQLITE4_ROW}
+
+do_test 3.2 {
+  set ::caseless_del2 0
+  set del [list incr ::caseless_del2]
+  set rc [catch {
+    sqlite4_create_collation db CASELESS caseless_cmp caseless_mkkey $del
+  } msg]
+  
+  list $::caseless_del $caseless_del2 $rc $msg
+} {0 1 1 SQLITE4_BUSY}
+
+do_test 3.3 { sqlite4_errcode db } {SQLITE4_BUSY}
+do_test 3.4 { 
+  sqlite4_errmsg db 
+} {unable to delete/modify collation sequence due to active statements}
+
+do_test 3.5 { sqlite4_finalize $::stmt } {SQLITE4_OK}
+do_test 3.6 { sqlite4_errcode db       } {SQLITE4_OK}
+do_test 3.7 { sqlite4_errmsg db        } {not an error}
+
+#-------------------------------------------------------------------------
+# The following tests verify that the collation needed destructor is
+# invoked:
+#
+#   1. When it is overridden, and
+#   2. When the database connection is closed.
+#
+# It would be good to test that if an error occurs within the 
+# collation_needed() the destructor is invoked immediately (as the 
+# documentation says). However there is currently no way to cause
+# sqlite4_collation_needed() to fail. sqlite4_collation_needed() 
+# currently *always* returns SQLITE4_OK.
+#
+do_test 4.1.1 {
+  set ::coll_needed_del 0
+  sqlite4_collation_needed db coll_needed {incr ::coll_needed_del}
+  set ::coll_needed_del
+} {0}
+
+do_test 4.1.2 {
+  set ::coll_needed_del2 0
+  sqlite4_collation_needed db coll_needed {incr ::coll_needed_del2}
+  list $::coll_needed_del $::coll_needed_del2
+} {1 0}
+
+do_test 4.2 {
+  db close
+  list $::coll_needed_del $::coll_needed_del2
+} {1 1}
+
+finish_test
+

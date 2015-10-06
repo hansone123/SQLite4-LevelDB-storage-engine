@@ -1,0 +1,1729 @@
+# 2012 April 02
+#
+# The author disclaims copyright to this source code.  In place of
+# a legal notice, here is a blessing:
+#
+#    May you do good and not evil.
+#    May you find forgiveness for yourself and forgive others.
+#    May you share freely, never taking more than you give.
+#
+#***********************************************************************
+# The tests in this file were used while developing the SQLite 4 code. 
+#
+set testdir [file dirname $argv0]
+source $testdir/tester.tcl
+set testprefix simple
+
+do_execsql_test 1.0 { 
+  PRAGMA table_info = sqlite_master
+} {
+    0 type text        0 {} 0 
+    1 name text        0 {} 0 
+    2 tbl_name text    0 {} 0 
+    3 rootpage integer 0 {} 0 
+    4 sql text         0 {} 0 
+}
+
+do_execsql_test 1.1 { SELECT * FROM sqlite_master } {}
+
+#explain { CREATE TABLE t1(a, b) }
+#execsql { PRAGMA kv_trace = 1 }
+#execsql { PRAGMA vdbe_trace = 1 }
+
+do_execsql_test 1.2 { 
+  CREATE TABLE t1(a, b);
+  PRAGMA table_info = t1;
+} {
+    0 a {} 0 {} 0 
+    1 b {} 0 {} 0 
+}
+
+do_execsql_test 1.3 { 
+  CREATE TABLE t2(x, y);
+  PRAGMA table_info = t2;
+} {
+    0 x {} 0 {} 0 
+    1 y {} 0 {} 0 
+}
+
+do_execsql_test 1.4 { 
+  CREATE TABLE t3(k PRIMARY KEY, v);
+  PRAGMA table_info = t3;
+} {
+    0 k {} 1 {} 1 
+    1 v {} 0 {} 0 
+}
+
+do_execsql_test 1.5 { 
+  SELECT name, rootpage FROM sqlite_master 
+} {t1 2 t2 3 t3 4}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 2.1.1 { CREATE TABLE t1(k PRIMARY KEY, v) } {}
+do_execsql_test 2.1.2 { CREATE TABLE t2(x, y) } {}
+
+do_execsql_test 2.2.1 { INSERT INTO t1 VALUES('a', 'AAA') }
+do_execsql_test 2.2.2 { SELECT * FROM t1 } {a AAA}
+do_execsql_test 2.2.3 { INSERT INTO t1 VALUES('b', 'BBB') }
+do_execsql_test 2.2.4 { SELECT * FROM t1 } {a AAA b BBB}
+
+do_execsql_test 2.3.1 { INSERT INTO t2 VALUES('123', '456') }
+do_execsql_test 2.3.2 { SELECT * FROM t2 } {123 456}
+do_execsql_test 2.3.3 { INSERT INTO t2 VALUES('789', '0ab') }
+do_execsql_test 2.3.4 { SELECT * FROM t2 } {123 456 789 0ab}
+
+do_catchsql_test 2.2.5 {
+  INSERT INTO t1 VALUES('a', 'CCC')
+} {1 {PRIMARY KEY must be unique}}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 3.1 { CREATE TABLE t1(k PRIMARY KEY, v UNIQUE) }
+
+do_execsql_test 3.2 { 
+  SELECT * FROM sqlite_master
+} {
+  table t1                    t1 2 {CREATE TABLE t1(k PRIMARY KEY, v UNIQUE)} 
+  index sqlite_t1_unique2 t1 3 {}
+}
+
+#explain { INSERT INTO t1 VALUES('one', '111') }
+#execsql { PRAGMA vdbe_trace = 1 }
+#execsql { PRAGMA kv_trace = 1 }
+#
+do_execsql_test 3.3 { INSERT INTO t1 VALUES('one', '111') } {}
+
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 4.1 { CREATE TABLE t1(k PRIMARY KEY, v) }
+do_execsql_test 4.2 { CREATE INDEX i1 ON t1(v) }
+
+do_execsql_test 4.3 { 
+  SELECT * FROM sqlite_master
+} {
+  table t1 t1 2 {CREATE TABLE t1(k PRIMARY KEY, v)} 
+  index i1 t1 3 {CREATE INDEX i1 ON t1(v)}
+}
+
+do_execsql_test 4.4 { INSERT INTO t1 VALUES('one', '111') } {}
+do_execsql_test 4.5 { SELECT * FROM t1 } {one 111} 
+
+do_execsql_test 4.6 { PRAGMA integrity_check } {ok}
+
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 5.1 { CREATE TABLE t1(k, v UNIQUE) }
+do_execsql_test 5.2 { CREATE INDEX i1 ON t1(v) }
+
+do_execsql_test 5.3 { 
+  SELECT * FROM sqlite_master
+} {
+  table t1                    t1 3 {CREATE TABLE t1(k, v UNIQUE)} 
+  index sqlite_t1_unique1 t1 2 {}
+  index i1                    t1 4 {CREATE INDEX i1 ON t1(v)}
+}
+
+do_execsql_test 5.3 { INSERT INTO t1 VALUES('one', '111') } {}
+do_execsql_test 5.4 { SELECT * FROM t1 } {one 111} 
+do_execsql_test 5.5 { PRAGMA integrity_check } {ok}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 6.1 { 
+  CREATE TABLE t1(k PRIMARY KEY, v);
+  CREATE INDEX i1 ON t1(v);
+  INSERT INTO t1 VALUES('one', 1);
+  INSERT INTO t1 VALUES('two', 2);
+  INSERT INTO t1 VALUES('three', 3);
+  INSERT INTO t1 VALUES('four', 4);
+  INSERT INTO t1 VALUES('five', 5);
+}
+
+do_execsql_test 6.2 { 
+  SELECT * FROM t1
+} {five 5 four 4 one 1 three 3 two 2}
+
+do_execsql_test 6.3 { 
+  CREATE TABLE t2(x PRIMARY KEY, y);
+  INSERT INTO t2 SELECT v, k FROM t1;
+  SELECT * FROM t2
+} {1 one 2 two 3 three 4 four 5 five}
+do_execsql_test 6.4 { PRAGMA integrity_check } {ok}
+
+do_execsql_test 6.5 { 
+  CREATE TABLE t3(a, b);
+  INSERT INTO t3 SELECT k, v FROM t1;
+  SELECT * FROM t3
+} {five 5 four 4 one 1 three 3 two 2}
+
+do_execsql_test 6.6 { 
+  INSERT INTO t3 SELECT a, b FROM t3;
+  SELECT * FROM t3;
+} {five 5 four 4 one 1 three 3 two 2 five 5 four 4 one 1 three 3 two 2}
+
+do_execsql_test 6.7 { PRAGMA integrity_check } {ok}
+do_execsql_test 6.8 { CREATE INDEX i2 ON t3(a) }
+do_execsql_test 6.9 { PRAGMA integrity_check } {ok}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 7.1 {
+  CREATE TABLE t1(a, b);
+  CREATE INDEX i1 ON t1(a);
+}
+do_execsql_test 7.2.1 { INSERT INTO t1 VALUES('xyz', '123') }
+do_execsql_test 7.2.2 { INSERT INTO t1 VALUES('xyz', '123') }
+do_execsql_test 7.2.3 { INSERT INTO t1 VALUES('xyz', '123') }
+
+do_execsql_test 7.3 {
+  SELECT * FROM t1;
+} {xyz 123 xyz 123 xyz 123}
+
+do_execsql_test 7.4 { PRAGMA integrity_check } {ok}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 8.1 {
+  CREATE TABLE t1(a PRIMARY KEY, b);
+  INSERT INTO t1 VALUES('a', 'b');
+}
+
+do_execsql_test 8.2 { DELETE FROM t1 WHERE b = 'b' }
+do_execsql_test 8.3 { SELECT * FROM t1 } {}
+
+do_execsql_test 8.4 {
+  INSERT INTO t1 VALUES('a', 'A');
+  INSERT INTO t1 VALUES('b', 'B');
+  INSERT INTO t1 VALUES('c', 'A');
+  INSERT INTO t1 VALUES('d', 'B');
+  INSERT INTO t1 VALUES('e', 'A');
+  INSERT INTO t1 VALUES('f', 'B');
+}
+do_execsql_test 8.5 { DELETE FROM t1 WHERE b = 'B' }
+do_execsql_test 8.6 { SELECT * FROM t1 } {a A c A e A}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 9.1 {
+  CREATE TABLE t1(a, b);
+  CREATE INDEX i1 ON t1(b);
+}
+
+do_execsql_test 9.2 {
+  INSERT INTO t1 VALUES('a', 'A');
+  INSERT INTO t1 VALUES('b', 'B');
+  INSERT INTO t1 VALUES('c', 'A');
+  INSERT INTO t1 VALUES('d', 'B');
+  INSERT INTO t1 VALUES('e', 'A');
+  INSERT INTO t1 VALUES('f', 'B');
+}
+do_execsql_test 9.3 { DELETE FROM t1 WHERE +b = 'B' }
+do_execsql_test 9.4 { SELECT * FROM t1 } {a A c A e A}
+do_execsql_test 9.5 { PRAGMA integrity_check } {ok}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 10.1 {
+  CREATE TABLE t1(a, b);
+  CREATE INDEX i1 ON t1(b);
+}
+do_execsql_test 10.2 {
+  INSERT INTO t1 VALUES(1, 2);
+  INSERT INTO t1 VALUES(3, 4);
+}
+
+do_execsql_test 10.3 { UPDATE t1 SET b = 10 WHERE a=3 }
+do_execsql_test 10.4 { SELECT * FROM t1 } {1 2 3 10}
+do_execsql_test 10.5 { PRAGMA integrity_check } {ok}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 11.1 {
+  CREATE TABLE t1(a, b, c, UNIQUE(a));
+  INSERT INTO t1 VALUES(1,2,3);
+}
+do_catchsql_test 11.2 { 
+  INSERT INTO t1 VALUES(1,2,4)
+} {1 {column a is not unique}}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 12.1 {
+  CREATE TABLE t1(a, b);
+  INSERT INTO t1 VALUES(3, 'three');
+  INSERT INTO t1 VALUES(1, 'one');
+  INSERT INTO t1 VALUES(2, 'two');
+}
+do_execsql_test 12.2 { SELECT * FROM t1 ORDER BY a } {1 one 2 two 3 three}
+do_execsql_test 12.3 { SELECT * FROM t1 ORDER BY b } {1 one 3 three 2 two}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 13.1 {
+  CREATE TABLE t1(a, b);
+  INSERT INTO t1 VALUES(3, 'three');
+  INSERT INTO t1 VALUES(1, 'one');
+  INSERT INTO t1 VALUES(2, 'two');
+}
+do_execsql_test 13.2  { SELECT a FROM t1 } {3 1 2}
+do_execsql_test 13.3  { CREATE TABLE t2(x, y) }
+do_execsql_test 13.4  { SELECT a FROM t1 } {3 1 2}
+do_execsql_test 13.5  { DROP TABLE t2 }
+do_execsql_test 13.6  { SELECT a FROM t1 } {3 1 2}
+do_execsql_test 13.7  { CREATE TABLE t2 AS SELECT * FROM t1 }
+do_execsql_test 13.8  { SELECT a FROM t2 } {3 1 2}
+do_execsql_test 13.9  { DROP TABLE t1 }
+do_execsql_test 13.10 { SELECT a FROM t2 } {3 1 2}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 14.1 {
+  CREATE TABLE t1(a,b,c NOT NULL  DEFAULT 5);
+  CREATE TABLE t2(a,b,c); 
+  CREATE TABLE t3(x);
+
+  INSERT INTO t2 VALUES(1,2,1);
+  INSERT INTO t2 VALUES(2,3,2);
+  INSERT INTO t2 VALUES(3,4,1);
+  INSERT INTO t2 VALUES(4,5,4);
+
+  INSERT INTO t3 VALUES(1);
+}
+
+do_execsql_test 14.2 { DROP TABLE t1 }
+do_execsql_test 14.3 { SELECT * FROM t3 } 1
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 15.1.1 { CREATE TABLE t1(x PRIMARY KEY) }
+do_execsql_test 15.1.2 { 
+  BEGIN;
+    INSERT INTO t1 VALUES('rollback is not implemented yet');
+}
+do_execsql_test 15.1.3 { ROLLBACK }
+do_execsql_test 15.1.4 { SELECT * FROM t1 } {}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 16.1.1 {
+  PRAGMA foreign_keys = ON;
+  CREATE TABLE p1(x PRIMARY KEY);
+  CREATE TABLE c1(y REFERENCES p1);
+
+  INSERT INTO p1 VALUES(2);
+  INSERT INTO p1 VALUES(4);
+  INSERT INTO p1 VALUES(6);
+}
+
+do_execsql_test  16.1.2 { INSERT INTO c1 VALUES(2) }
+do_catchsql_test 16.1.3 { 
+  INSERT INTO c1 VALUES(3) 
+} {1 {foreign key constraint failed}}
+do_execsql_test 16.1.4 { SELECT * FROM c1 } {2}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 17.1 {
+
+  PRAGMA foreign_keys = ON;
+  CREATE TABLE t1(x PRIMARY KEY);
+  CREATE TABLE t2(a PRIMARY KEY, b);
+
+  INSERT INTO t1 VALUES('X');
+
+  INSERT INTO t2 VALUES(1, 'A');
+  INSERT INTO t2 VALUES(2, 'B');
+  INSERT INTO t2 VALUES(3, 'C');
+  INSERT INTO t2 VALUES(4, 'D');
+  INSERT INTO t2 VALUES(5, 'A');
+}
+
+do_catchsql_test 17.2 { 
+  INSERT INTO t1 SELECT b FROM t2;
+} {1 {PRIMARY KEY must be unique}}
+
+do_execsql_test 17.3 { SELECT * FROM t1 } {X}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 18.1 {
+  CREATE TABLE t1(a, b, c, UNIQUE(a,b) ON CONFLICT IGNORE);
+  CREATE TABLE t2(x);
+
+  INSERT INTO t1 VALUES(1,2,3);
+  BEGIN;
+    INSERT INTO t2 VALUES(1); 
+    INSERT INTO t1 VALUES(1,2,4);
+  COMMIT;
+}
+
+do_execsql_test 18.2 { SELECT * FROM t1 } {1 2 3}
+do_execsql_test 18.3 { SELECT * FROM t2 } {1}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_test 19.1 {
+  catchsql {
+    CREATE TABLE t4(x);
+    CREATE UNIQUE INDEX t4x ON t4(x);
+    BEGIN;
+    INSERT INTO t4 VALUES(1);
+    INSERT OR ROLLBACK INTO t4 VALUES(1);
+  }
+  execsql { SELECT * FROM t4 }
+} {}
+
+# Check the above closed the transaction.
+do_execsql_test 19.2 { BEGIN }
+do_execsql_test 19.3 { COMMIT }
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 20.1 {
+  CREATE TABLE def(d, e, f);
+  BEGIN;
+  INSERT INTO def VALUES('a', 'b', 'c');
+
+  INSERT INTO def SELECT * FROM def;
+  INSERT INTO def SELECT * FROM def;
+  INSERT INTO def SELECT * FROM def;
+  INSERT INTO def SELECT * FROM def;
+  INSERT INTO def SELECT * FROM def;
+
+  SELECT count(*) FROM def;
+} {32}
+
+do_execsql_test 20.2 { ROLLBACK }
+do_execsql_test 20.3 { SELECT count(*) FROM def } 0
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 21.1 {
+  PRAGMA foreign_keys = on;
+  CREATE TABLE t1(a PRIMARY KEY, b);
+  CREATE TABLE t2(c REFERENCES t1(a), d);
+}
+
+do_execsql_test 21.2 {
+  INSERT INTO t1 VALUES(1, 2);
+  INSERT INTO t2 VALUES(1, 3);
+  INSERT INTO t2 VALUES(NULL, 4);
+}
+
+do_catchsql_test 21.3 {
+  UPDATE t2 SET c=2 WHERE d=4;
+} {1 {foreign key constraint failed}}
+
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 22.1 {
+  CREATE TABLE t1(x PRIMARY KEY);
+  INSERT INTO t1 VALUES('abc');
+}
+
+do_execsql_test 22.2 { UPDATE t1 SET x = 'abc' }
+do_execsql_test 22.3 { SELECT * FROM t1 } {abc}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 23.1 {
+  PRAGMA foreign_keys = on;
+  CREATE TABLE t1(a PRIMARY KEY, b);
+  CREATE TABLE t2(c REFERENCES t1(a), d);
+}
+proc out {} {
+  set t1 [execsql {SELECT a FROM t1}]
+  set t2 [execsql {SELECT c FROM t2}]
+  puts "t1: $t1       t2: $t2"
+}
+
+do_test 23.2 {
+  catchsql "BEGIN; INSERT INTO t2 VALUES(1, 3)" ; execsql COMMIT
+} {}
+do_test 23.3 {
+  catchsql "BEGIN; INSERT INTO t1 VALUES(1, 2)" ; execsql COMMIT
+} {}
+do_test 23.4 {
+  catchsql "BEGIN; INSERT INTO t2 VALUES(1, 3)" ; execsql COMMIT
+} {}
+do_test 23.5 {
+  catchsql "BEGIN; INSERT INTO t2 VALUES(2, 4)" ; execsql COMMIT
+} {}
+do_test 23.6 {
+  catchsql "BEGIN; INSERT INTO t2 VALUES(NULL, 4)" ; execsql COMMIT
+} {}
+do_test 23.7 {
+  catchsql "BEGIN; UPDATE t2 SET c=2 WHERE d=4" ; execsql COMMIT
+} {}
+do_test 23.8 {
+  catchsql "BEGIN; UPDATE t2 SET c=1 WHERE d=4" ; execsql COMMIT
+} {}
+do_test 23.9 {
+  catchsql "BEGIN; UPDATE t2 SET c=1 WHERE d=4" ; execsql COMMIT
+} {}
+do_test 23.10 {
+  catchsql "BEGIN; UPDATE t2 SET c=NULL WHERE d=4" ; execsql COMMIT
+} {}
+do_test 23.11 {
+  execsql BEGIN
+  catchsql "DELETE FROM t1 WHERE a=1"
+  execsql COMMIT
+} {}
+
+do_catchsql_test 23.3 {
+  BEGIN;
+    UPDATE t1 SET a = 2;
+  COMMIT;
+} {1 {foreign key constraint failed}}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 24.1 {
+  CREATE TABLE p(x INTEGER);
+  INSERT INTO p VALUES(35.0);
+  SELECT typeof(x) FROM p;
+} {integer}
+
+do_execsql_test 24.2 {
+  CREATE TABLE p2(x INTEGER PRIMARY KEY);
+  INSERT INTO p2 VALUES(35.0);
+  SELECT typeof(x) FROM p2;
+} {integer}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 25.1 {
+  PRAGMA foreign_keys = on;
+  CREATE TABLE p(x INT PRIMARY KEY);
+  CREATE TABLE c(y REFERENCES p);
+  INSERT INTO p VALUES(35);
+  INSERT INTO c VALUES(35.0);
+}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 26.1 {
+  PRAGMA foreign_keys = on;
+  CREATE TABLE p(x INT PRIMARY KEY);
+  CREATE TABLE c(y REFERENCES p);
+  INSERT INTO p VALUES(35.0);
+  INSERT INTO c VALUES(35.0);
+}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 27.1 {
+  CREATE TABLE t1(a, b);
+  CREATE TABLE log(x);
+  CREATE TRIGGER BEFORE UPDATE ON t1 BEGIN
+    INSERT INTO log VALUES(old.b || ' -> ' || new.b);
+  END;
+  INSERT INTO t1 VALUES(1, 'abc');
+  UPDATE t1 SET b = 'xyz';
+}
+do_execsql_test 27.2 { SELECT * FROM log } {{abc -> xyz}}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 28.1 {
+  CREATE TABLE t1(a, b);
+  CREATE TABLE log(x);
+  CREATE TRIGGER BEFORE UPDATE ON t1 BEGIN
+    INSERT INTO log VALUES('rowid=' || old.rowid);
+  END;
+  INSERT INTO t1 VALUES(1, 'abc');
+}
+
+do_execsql_test 28.2 { SELECT rowid FROM t1 } 1
+do_execsql_test 28.3 { UPDATE t1 SET b = 'xyz'; }
+do_execsql_test 28.4 { SELECT * FROM log } {{rowid=1}}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 29.1 {
+  CREATE TABLE t1(a, b);
+  CREATE TABLE log(x,y,z);
+  CREATE TRIGGER tr BEFORE INSERT ON t1 BEGIN
+    INSERT INTO log VALUES(new.rowid, new.a, new.b);
+  END;
+}
+do_execsql_test 29.2 { INSERT INTO t1 VALUES('one', 'abc') }
+do_execsql_test 29.3 { SELECT * FROM log } {-1 one abc}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 30.1 {
+  CREATE TABLE t1(a, b);
+  CREATE TABLE log(x,y,z);
+  CREATE TRIGGER tr AFTER INSERT ON t1 BEGIN
+    INSERT INTO log VALUES(new.rowid, new.a, new.b);
+  END;
+}
+do_execsql_test 30.2 { INSERT INTO t1 VALUES('one', 'abc') }
+do_execsql_test 30.3 { SELECT * FROM log } {1 one abc}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 31.1 {
+  CREATE TABLE tbl(a PRIMARY KEY, b, c);
+  CREATE TRIGGER tr AFTER INSERT ON tbl BEGIN
+    UPDATE tbl SET b = '';
+  END;
+  INSERT INTO tbl VALUES(1, 2, 3);
+}
+
+do_execsql_test 31.2 { SELECT * FROM tbl } {1 {} 3}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 32.1 {
+  CREATE TABLE t1(a, b, c);
+  INSERT INTO t1 VALUES(1, 2, 3);
+}
+do_execsql_test 32.2 { SELECT a, b, c FROM t1 } {1 2 3}
+do_execsql_test 32.3 {
+  DROP TABLE t1;
+  CREATE TABLE t1(c, b, a);
+  INSERT INTO t1 VALUES(1, 2, 3);
+}
+do_execsql_test 32.4 { SELECT a, b, c FROM t1 } {3 2 1}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 33.1 { CREATE TABLE t1(a, b, c) }
+do_execsql_test 33.2 { CREATE TABLE t2(a, b, c) }
+do_execsql_test 33.3 { CREATE TABLE t3(a, b, c) }
+do_execsql_test 33.4 { CREATE TABLE t4(a, b, c) }
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 34.1 { CREATE TABLE t1(x PRIMARY KEY) }
+
+do_execsql_test 34.2 { INSERT INTO t1 VALUES('123') }
+do_test 34.3 { db changes } 1
+
+do_execsql_test 34.4 { UPDATE t1 SET x = '456' }
+do_test 34.5 { db changes } 1
+
+do_execsql_test 34.6 { UPDATE t1 SET x = '456' WHERE x = '123' }
+do_test 34.7 { db changes } 0
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 35.1 {
+  CREATE TABLE tbl (a primary key, b, c);
+  INSERT INTO tbl VALUES(1, 2, 3);
+  INSERT INTO tbl VALUES(2, 2, 3);
+  CREATE TRIGGER ai_tbl AFTER INSERT ON tbl WHEN new.c!=0 BEGIN
+    INSERT OR IGNORE INTO tbl values (new.a, 0, 0);
+  END;
+}
+
+do_execsql_test 35.2 { INSERT OR REPLACE INTO tbl values (2, 2, 3) }
+do_execsql_test 35.3 { SELECT * from tbl } {1 2 3 2 0 0}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 36.1 {
+  CREATE TABLE tbl (a primary key, b, c);
+  CREATE TRIGGER au_tbl AFTER UPDATE ON tbl BEGIN
+    UPDATE OR IGNORE tbl SET a = new.a, c = 10;
+  END;
+
+  BEGIN;
+  INSERT INTO tbl VALUES(1, 3, 10);
+  INSERT INTO tbl VALUES(2, 3, 4);
+}
+do_catchsql_test 36.2 {
+  UPDATE OR ROLLBACK tbl SET a = 4 WHERE a = 1;
+} {1 {PRIMARY KEY must be unique}}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 37.1 {
+  CREATE TABLE t1(a PRIMARY KEY, b);
+  INSERT INTO t1 VALUES('x', 'xxx');
+  INSERT INTO t1 VALUES('y', 'yyy');
+}
+do_execsql_test 37.2 {
+  BEGIN;
+    DELETE FROM t1 WHERE a='y';
+    INSERT INTO t1 VALUES('y', 'yyy');
+    DELETE FROM t1 WHERE a='y';
+    INSERT INTO t1 VALUES('y', 'yyy');
+  ROLLBACK;
+}
+ 
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 38.1 {
+  CREATE TABLE t1(a, b);
+  CREATE TABLE log(a, b);
+
+  -- INSERT INTO t1 VALUES(1, 2);
+  INSERT INTO t1 VALUES(3, 4);
+}
+do_execsql_test 38.2 {
+  CREATE VIEW v1 AS SELECT a, b FROM t1;
+  CREATE TRIGGER tr1 INSTEAD OF DELETE ON v1 BEGIN
+    INSERT INTO log VALUES(old.b, old.a);
+  END;
+}
+do_execsql_test 38.3 {
+  SELECT * FROM v1;
+} {3 4}
+do_execsql_test 38.4 {
+  DELETE FROM v1 WHERE a = 3;
+} 
+do_execsql_test 38.5 {
+  SELECT * FROM log;
+} {4 3}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 39.1 {
+  CREATE TABLE t1(a PRIMARY KEY, b);
+}
+do_catchsql_test 39.2 {
+  INSERT INTO t1 VALUES(NULL, 'xyz');
+} {1 {t1.a may not be NULL}}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 40.1 {
+    CREATE TABLE abc(a, b, c, PRIMARY KEY(a, b));
+    INSERT INTO abc VALUES(1, 1, 1);
+    SELECT * FROM abc;
+} {1 1 1}
+do_execsql_test 40.2 { SELECT max(a) FROM abc } {1}
+do_execsql_test 40.3 {
+  SELECT a+(select max(a) FROM abc), 
+         b+(select max(a) FROM abc), 
+         c+(select max(a) FROM abc) 
+  FROM abc
+} {2 2 2}
+do_execsql_test 40.4 {
+  INSERT INTO abc SELECT 
+      a+(select max(a) FROM abc), 
+      b+(select max(a) FROM abc), 
+      c+(select max(a) FROM abc) 
+  FROM abc;
+}
+do_execsql_test 40.5 { SELECT * FROM abc } {1 1 1 2 2 2}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 41.1 {
+  CREATE TABLE x(a, b);
+  INSERT INTO x VALUES(1, 'one');
+  INSERT INTO x VALUES(2, 'two');
+  INSERT INTO x VALUES(1, 'three');
+} 
+
+do_execsql_test 41.2 {
+  SELECT * FROM x ORDER BY a;
+} {1 one 1 three 2 two}
+
+#-------------------------------------------------------------------------
+reset_db
+
+proc populate_t1 {} {
+  db eval {
+    INSERT INTO t1(a, b) VALUES(4, 'four');
+    INSERT INTO t1(a, b) VALUES(9, 'nine');
+    INSERT INTO t1(a, b) VALUES(5, 'five');
+    INSERT INTO t1(a, b) VALUES(1, 'one');
+    INSERT INTO t1(a, b) VALUES(7, 'seven');
+    INSERT INTO t1(a, b) VALUES(8, 'eight');
+    INSERT INTO t1(a, b) VALUES(2, 'two');
+    INSERT INTO t1(a, b) VALUES(3, 'three');
+    INSERT INTO t1(a, b) VALUES(6, 'six');
+    INSERT INTO t1(a, b) VALUES(10, 'ten');
+  }
+}
+
+foreach {t schema} {
+  1 "CREATE TABLE t1(a, b)"
+  2 "CREATE TABLE t1(a, b); CREATE INDEX i1 ON t1(a);"
+  3 "CREATE TABLE t1(a, b); CREATE INDEX i1 ON t1(b);"
+  4 "CREATE TABLE t1(a PRIMARY KEY, b)"
+} {
+
+  do_test 42.$t.0 {
+    reset_db
+    execsql $schema
+    populate_t1
+  } {}
+
+  foreach {u sql res} {
+    1 "SELECT * FROM t1 WHERE a = 7"        {7 seven}
+    2 "SELECT * FROM t1 WHERE b = 'seven'"  {7 seven}
+  } {
+    do_execsql_test 42.$t.$u $sql $res
+  }
+}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 43.1 {
+  CREATE TABLE t1(a, b);
+  INSERT INTO t1 VALUES('a', 1);
+  INSERT INTO t1 VALUES('b', 4);
+  INSERT INTO t1 VALUES('a', 2);
+  INSERT INTO t1 VALUES('b', 5);
+}
+
+do_execsql_test 43.2 {
+  SELECT a, sum(b) FROM t1 GROUP BY a;
+} {a 3 b 9}
+
+#-------------------------------------------------------------------------
+# Test sorting numeric values.
+#
+reset_db
+do_execsql_test 44.1 { CREATE TABLE t1(x PRIMARY KEY, y) }
+do_test 44.2 {
+  set lVal [list]
+  set val 5.0
+  for {set i 0} {$i < 10} {incr i ; set val [expr {$val*5.0}] } {
+    lappend lVal $val
+  }
+  set val 5
+  for {set i 0} {$i < 10} {incr i ; set val [expr {$val*5}] } {
+    lappend lVal [expr $val-1]
+    set val [expr {$val*5}]
+  }
+  set val 5.0
+  for {set i 0} {$i < 10} {incr i ; set val [expr {$val/5.0}] } {
+    lappend lVal $val
+    set val [expr {$val/5.0}]
+  }
+
+  set lVal2 [list]
+  foreach val $lVal { lappend lVal2 [expr $val * -1] }
+  set lVal [concat $lVal $lVal2]
+
+  foreach v $lVal {
+    execsql "INSERT INTO t1 VALUES(randomblob(16), $v)"
+  }
+} {}
+
+do_execsql_test 44.3 {
+  SELECT y FROM t1 ORDER BY y;
+} [lsort -real $lVal]
+
+do_execsql_test 44.4 {
+  SELECT count(*) FROM t1;
+} [llength $lVal]
+
+do_execsql_test 44.5 {
+  CREATE INDEX i1 ON t1(y);
+  SELECT y FROM t1 ORDER BY y;
+} [lsort -real $lVal]
+
+do_execsql_test 44.6 {
+  DROP INDEX i1;
+  CREATE INDEX i1 ON t1(y DESC);
+}
+
+do_execsql_test 44.7 {
+  SELECT y FROM t1 ORDER BY y;
+} [lsort -real $lVal]
+
+do_execsql_test 44.8 {
+  SELECT y FROM t1 ORDER BY y DESC;
+} [lsort -decreasing -real $lVal]
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 45.1 {
+  CREATE TABLE t1(a, b, c);
+  CREATE TABLE t2(d, e, f);
+
+  INSERT INTO t1 VALUES( 2,  4,  6);
+  INSERT INTO t1 VALUES( 8, 10, 12);
+  INSERT INTO t1 VALUES(14, 16, 18);
+
+  INSERT INTO t2 VALUES(3,   6,  9);
+  INSERT INTO t2 VALUES(12, 15, 18);
+  INSERT INTO t2 VALUES(21, 24, 27);
+}
+
+do_execsql_test 45.2 {
+  SELECT d FROM t2 EXCEPT SELECT d FROM t2;
+} {}
+
+do_execsql_test 45.3 {
+  SELECT d FROM t2 
+  EXCEPT 
+  SELECT a FROM (SELECT a FROM t1 UNION ALL SELECT d FROM t2)
+} {}
+
+do_execsql_test 45.4 {
+   SELECT c, d FROM t1 LEFT JOIN t2 ON (c=d)
+} {6 {} 12 12 18 {}}
+
+do_execsql_test 45.5 {
+   SELECT a AS x, b AS y FROM t1
+     UNION ALL
+   SELECT a*10 + 0.1, f*10 + 0.1 FROM t1 LEFT JOIN t2 ON (c=d)
+     UNION ALL
+   SELECT a*100, b*100 FROM t1
+
+   ORDER BY 1;
+} {2 4 8 10 14 16 20.1 {} 80.1 180.1 140.1 {} 200 400 800 1000 1400 1600}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 46.1 {
+  CREATE TABLE t1(x);
+  CREATE UNIQUE INDEX i1 ON t1(x);
+}
+
+do_execsql_test 46.2 { INSERT INTO t1 VALUES(NULL) }
+do_execsql_test 46.3 { INSERT INTO t1 VALUES(NULL) }
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 46.1 {
+  CREATE TABLE t1(x, y COLLATE nocase);
+  CREATE UNIQUE INDEX i1 ON t1(y);
+}
+do_catchsql_test 46.2 {
+  INSERT INTO t1 VALUES(1, 'ABC');
+  INSERT INTO t1 VALUES(2, 'abc');
+} {1 {column y is not unique}}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 47.1 {
+  CREATE TABLE t1(x);
+  INSERT INTO t1 VALUES('D');
+  INSERT INTO t1 VALUES('a');
+  INSERT INTO t1 VALUES('c');
+  INSERT INTO t1 VALUES('B');
+}
+do_execsql_test 47.2 {
+  SELECT x FROM t1 ORDER BY x;
+} {B D a c}
+do_execsql_test 47.3 {
+  SELECT x FROM t1 ORDER BY x COLLATE nocase;
+} {a B c D}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 48.1 {
+  CREATE TABLE t1(a, b, c);
+  CREATE TABLE t2(d, e, f);
+  BEGIN;
+  INSERT INTO t1 VALUES(1,  'one',   'I');
+  INSERT INTO t1 VALUES(3,  NULL,    NULL);
+  INSERT INTO t1 VALUES(5,  'five',  'V');
+  INSERT INTO t1 VALUES(7,  'seven', 'VII');
+  INSERT INTO t1 VALUES(9,  NULL,    NULL);
+  INSERT INTO t1 VALUES(2,  'two',   'II');
+  INSERT INTO t1 VALUES(4,  'four',  'IV');
+  INSERT INTO t1 VALUES(6,  NULL,    NULL);
+  INSERT INTO t1 VALUES(8,  'eight', 'VIII');
+  INSERT INTO t1 VALUES(10, 'ten',   'X');
+
+  INSERT INTO t2 VALUES(1,  'two',      'IV');
+  INSERT INTO t2 VALUES(2,  'four',     'VIII');
+  INSERT INTO t2 VALUES(3,  NULL,       NULL);
+  INSERT INTO t2 VALUES(4,  'eight',    'XVI');
+  INSERT INTO t2 VALUES(5,  'ten',      'XX');
+  INSERT INTO t2 VALUES(6,  NULL,       NULL);
+  INSERT INTO t2 VALUES(7,  'fourteen', 'XXVIII');
+  INSERT INTO t2 VALUES(8,  'sixteen',  'XXXII');
+  INSERT INTO t2 VALUES(9,  NULL,       NULL);
+  INSERT INTO t2 VALUES(10, 'twenty',   'XL');
+
+  COMMIT;
+}
+
+do_execsql_test 48.2 {
+  SELECT a, b FROM t1 UNION ALL SELECT d, e FROM t2 ORDER BY 1 
+} {
+  1 one 1 two 2 two 2 four 3 
+  {} 3 {} 4 four 4 eight 5 
+  five 5 ten 6 {} 6 {} 7 
+  seven 7 fourteen 8 eight 8 sixteen 9 
+  {} 9 {} 10 ten 10 twenty
+}
+
+proc reverse_cmp {lhs rhs} {
+  return [string compare $rhs $lhs]
+}
+proc reverse_mkkey {zIn} {
+  set res ""
+  binary scan $zIn c* lChar
+  foreach c $lChar {
+    append res [format "%02X" [expr 255-$c]]
+  }
+  set res
+}
+db collate reverse reverse_cmp reverse_mkkey
+do_execsql_test 48.3 {
+    SELECT * FROM t1 WHERE a<5 UNION SELECT * FROM t2 WHERE d>=5 
+    ORDER BY 2 COLLATE reverse, 1
+} { 
+  3 {} {}            6 {} {}         9 {} {} 
+  2 two II           10 twenty XL    5 ten XX 
+  8 sixteen XXXII    1 one I         7 fourteen XXVIII 
+  4 four IV
+}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 49.1 {
+  CREATE TABLE t1(a, b);
+
+  INSERT INTO t1 VALUES(1, 5);
+  INSERT INTO t1 VALUES(2, 4);
+  INSERT INTO t1 VALUES(3, 3);
+  INSERT INTO t1 VALUES(4, 2);
+  INSERT INTO t1 VALUES(5, 1);
+}
+
+do_execsql_test 49.2 {
+    SELECT a, b FROM t1 ORDER BY a LIMIT 2 OFFSET 2
+} {3 3   4 2}
+
+do_execsql_test 49.3 {
+  SELECT * FROM (
+    SELECT a, b FROM t1 ORDER BY a LIMIT 2 OFFSET 2
+  ) ORDER BY 2;
+} {4 2   3 3}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 50.1 {
+  CREATE TABLE t1(x, y);
+  CREATE INDEX i1 ON t1(x);
+} {}
+do_execsql_test 50.2 {
+  INSERT INTO t1 VALUES(0.0003, 'three');
+  INSERT INTO t1 VALUES(0.0001, 'one');
+  INSERT INTO t1 VALUES(0.0002, 'two');
+}
+do_execsql_test 50.3 {
+  SELECT * FROM t1 ORDER BY x;
+} {0.0001 one 0.0002 two 0.0003 three}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 51.1 {
+  CREATE TABLE t1(x, y);
+  CREATE INDEX i1 ON t1(x);
+} {}
+do_execsql_test 51.2 {
+  INSERT INTO t1 VALUES(-1, 'one');
+  INSERT INTO t1 VALUES(-2, 'two');
+}
+do_execsql_test 51.3 {
+  SELECT * FROM t1 ORDER BY x;
+} {-2 two -1 one}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 52.1 {
+  CREATE TABLE t1(x PRIMARY KEY, y, z);
+} {}
+do_execsql_test 52.2 {
+  CREATE INDEX i1 ON t1(y DESC, z ASC);
+}
+do_execsql_test 52.3 {
+  INSERT INTO t1 VALUES('a', 'one', 'before');
+  INSERT INTO t1 VALUES('c', 'two', 'before');
+  INSERT INTO t1 VALUES('b', 'one', 'after');
+  INSERT INTO t1 VALUES('d', 'two', 'after');
+}
+do_execsql_test 52.4 {
+  SELECT x FROM t1 ORDER BY y DESC, z ASC;
+} {d c b a}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 53.1 {
+  CREATE TABLE t1(x PRIMARY KEY, y);
+} {}
+do_execsql_test 53.2 {
+  CREATE INDEX i1 ON t1(y DESC);
+}
+do_execsql_test 53.3 {
+  INSERT INTO t1 VALUES('a', -0.0000001);
+  INSERT INTO t1 VALUES('b', +0.0000001);
+  INSERT INTO t1 VALUES('c', 10);
+  INSERT INTO t1 VALUES('d', -10);
+}
+do_execsql_test 53.4 {
+  SELECT x FROM t1 ORDER BY y DESC;
+} {c b a d}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 54.1 {
+  CREATE TABLE t1(x INTEGER PRIMARY KEY, y);
+  CREATE TABLE t2(x, y);
+} {}
+
+foreach {tn sql res} {
+  1  { SELECT rowid FROM t1 }   {1 {no such column: rowid}}
+  2  { SELECT rowid FROM t2 }   {0 {}}
+  3  { SELECT rOWId FROM t1 }   {1 {no such column: rOWId}}
+  4  { SELECT rOWId FROM t2 }   {0 {}}
+  5  { SELECT oid FROM t1 }     {1 {no such column: oid}}
+  6  { SELECT oid FROM t2 }     {1 {no such column: oid}}
+  7  { SELECT _rowid_ FROM t1 } {1 {no such column: _rowid_}}
+  8  { SELECT _rowid_ FROM t2 } {1 {no such column: _rowid_}}
+
+} {
+  do_catchsql_test 54.2.$tn $sql $res
+}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 55.1 {
+  CREATE TABLE t1(x INTEGER PRIMARY KEY, y);
+  INSERT INTO t1 VALUES(1, 'one');
+  INSERT INTO t1 VALUES(3, 'three');
+} {}
+do_execsql_test 55.2 {
+  BEGIN;
+    INSERT INTO t1 VALUES(2, 'too');
+    UPDATE t1 SET y = 'two' WHERE x=2;
+  ROLLBACK;
+}
+do_execsql_test 55.3 { SELECT * FROM t1 } {1 one 3 three}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 56.1 {
+  CREATE TABLE t1(x, y);
+  CREATE UNIQUE INDEX i1 ON t1(x);
+  INSERT INTO t1 VALUES(1, 'one');
+  INSERT INTO t1 VALUES(2, 'two');
+} {}
+
+do_execsql_test 56.2 {
+  INSERT OR REPLACE INTO t1 VALUES(2, 'three');
+}
+
+do_execsql_test 55.3 { SELECT * FROM t1 } {1 one 2 three}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 57.1 {
+  CREATE TABLE t1(a INTEGER PRIMARY KEY, b UNIQUE, c, d, e);
+  INSERT INTO t1 VALUES(1, 2, 3, 4, 5);
+  INSERT INTO t1 VALUES(6, 7, 8, 9, 10);
+} {}
+do_execsql_test 57.2 {
+  UPDATE t1 SET a = 11 WHERE a=1;
+  SELECT * FROM t1;
+} {6 7 8 9 10 11 2 3 4 5 }
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 58.1 {
+  CREATE TABLE t1(a INTEGER PRIMARY KEY, b);
+  INSERT INTO t1 VALUES(1, 2);
+  INSERT INTO t1 VALUES(3, 4);
+  CREATE TABLE t2(a INTEGER PRIMARY KEY, b);
+  INSERT INTO t2 SELECT * FROM t1;
+} {}
+do_test 57.2 {
+  execsql { DELETE FROM t1 WHERE a!=5 }
+  db changes
+} {2}
+do_test 57.3 {
+  execsql { DELETE FROM t2 }
+  db changes
+} {2}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 59.1 {
+  CREATE TABLE t1(a INTEGER PRIMARY KEY, b);
+  INSERT INTO t1 VALUES(1, 2);
+  INSERT INTO t1 VALUES(3, 4);
+  INSERT INTO t1 VALUES(5, 6);
+  INSERT INTO t1 VALUES(7, 8);
+} {}
+
+do_test 59.2 {
+  set res [list]
+  db eval { SELECT a, b FROM t1 ORDER BY a } {
+    if {$a==3} { db eval "DELETE FROM t1" }
+    lappend res $a $b
+  }
+  set res
+} {1 2 3 4}
+
+do_execsql_test 59.3 { 
+  SELECT * FROM t1;
+} {}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 60.1 {
+  CREATE TABLE t1(a PRIMARY KEY, b , c);
+  CREATE UNIQUE INDEX i1 ON t1(b);
+  INSERT INTO t1 VALUES(1, 'abc', 'xxx');
+  INSERT INTO t1 VALUES(2, 'def', 'jkl');
+  INSERT INTO t1 VALUES(3, 'ghi', 'abc');
+  INSERT INTO t1 VALUES(4, 'jkl', 'yyy');
+}
+do_execsql_test 60.2 {
+  SELECT a FROM t1 WHERE c IN (SELECT b FROM t1); 
+} {2 3}
+
+do_execsql_test 60.3 {
+  SELECT a FROM t1 WHERE b IN (SELECT c FROM t1); 
+} {1 4}
+
+do_execsql_test 60.4 {
+  SELECT a FROM t1 WHERE c IN (SELECT c FROM t1); 
+} {1 2 3 4}
+
+do_execsql_test 60.5 {
+  SELECT a FROM t1 WHERE b IN (SELECT b FROM t1); 
+} {1 2 3 4}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 61.1 {
+  CREATE TABLE t2(y,a);
+  INSERT INTO t2 VALUES(22,2);
+}
+
+do_execsql_test 61.2 { SELECT count(*) FROM t2 GROUP BY a } 1
+
+#-------------------------------------------------------------------------
+# TODO: See ticket [f3d711b1e5] 
+#reset_db
+#do_execsql_test 62.1 {
+#  CREATE TABLE t2(x int, y int, z int);
+#  CREATE INDEX i2x ON t2(x);
+#}
+#
+#set r1 [expr {rand()}]
+#set r2 [expr {rand()}]
+#set r3 [expr {rand()}]
+#
+#set sql "INSERT INTO t2 VALUES($r1,$r2,$r3)" 
+#execsql $sql
+#integrity_check 62.2
+#-------------------------------------------------------------------------
+#reset_db
+#set r1 [expr 0.684377705997032]
+#do_execsql_test 63.1 { CREATE TABLE t1(x UNIQUE); }
+#execsql { PRAGMA trace = 1 }
+#breakpoint
+#do_execsql_test 63.2 "INSERT INTO t1 VALUES($r1)"
+##do_execsql_test 63.3 "SELECT * FROM t1" $r1
+#integrity_check 63.4
+#execsql { PRAGMA kvdump }
+#-------------------------------------------------------------------------
+
+#-------------------------------------------------------------------------
+# reset_db
+# do_execsql_test 64.1 {
+#   CREATE TABLE t1(x PRIMARY KEY);
+# }
+# do_execsql_test 64.2 { 
+# PRAGMA trace = 1;
+#   INSERT INTO t1 VALUES(18446744073709551615);
+#   INSERT INTO t1 VALUES(18446744073709551616);
+# }
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 65.1 {
+  CREATE TABLE t1(x);
+  CREATE TABLE t2(y);
+  INSERT INTO t1 VALUES('a');
+  INSERT INTO t1 VALUES('b');
+  INSERT INTO t1 VALUES('c');
+  INSERT INTO t2 VALUES('d');
+  INSERT INTO t2 VALUES('e');
+}
+do_execsql_test 65.2 { SELECT DISTINCT t1.rowid FROM t1 }     {1 2 3}
+do_execsql_test 65.3 { SELECT DISTINCT t1.rowid FROM t1, t2 } {1 2 3}
+
+#-------------------------------------------------------------------------
+# The three CREATE TABLE statements below should be equivalent.
+#
+reset_db
+do_execsql_test 66.1 {
+  CREATE TABLE t1(x, y UNIQUE PRIMARY KEY);
+  CREATE TABLE t2(x, y PRIMARY KEY UNIQUE);
+  CREATE TABLE t3(x, y PRIMARY KEY);
+}
+
+do_execsql_test 66.2 {
+  PRAGMA table_info=t1;
+} {
+  0 x {} 0 {} 0 
+  1 y {} 1 {} 1
+}
+do_execsql_test 66.3 {
+  PRAGMA table_info=t2;
+} {
+  0 x {} 0 {} 0 
+  1 y {} 1 {} 1
+}
+do_execsql_test 66.4 {
+  PRAGMA table_info=t3;
+} {
+  0 x {} 0 {} 0 
+  1 y {} 1 {} 1
+}
+
+#-------------------------------------------------------------------------
+reset_db
+
+do_execsql_test 67.1 { 
+  CREATE TABLE t1(x PRIMARY KEY); 
+  CREATE TABLE t2(y);
+}
+do_execsql_test 67.2 { 
+  CREATE TRIGGER tr1 AFTER DELETE ON t1 BEGIN
+    INSERT INTO t2 VALUES(old.rowid);
+  END;
+}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 68.1 {
+  CREATE TABLE p(a, b, c, PRIMARY KEY(b, c));
+  CREATE TABLE c(d, e, f, FOREIGN KEY(e, f) REFERENCES p);
+}
+do_execsql_test 68.2 {
+  INSERT INTO p VALUES(1, 2, 3);
+  INSERT INTO c VALUES('w', 2, 3);
+  INSERT INTO c VALUES('x', 'x', NULL);
+  INSERT INTO c VALUES('y', NULL, 'x');
+  INSERT INTO c VALUES('z', NULL, NULL);
+}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 69.1 {
+  CREATE TABLE t4(x, y);
+  INSERT INTO t4 VALUES(1, 'one');
+} {}
+
+do_execsql_test 69.2 { SELECT x FROM t4 ORDER BY x LIMIT 1 } {1}
+do_execsql_test 69.3 { SELECT (SELECT x FROM t4 ORDER BY x) } {1}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 70.1 {
+  CREATE TABLE maintable( id integer);
+  CREATE TABLE joinme(id_int integer, id_text text);
+  CREATE INDEX joinme_id_text_idx on joinme(id_text);
+  CREATE INDEX joinme_id_int_idx on joinme(id_int);
+}
+
+do_catchsql_test 70.2 {
+  select * from maintable as m inner join
+    joinme as j indexed by joinme_id_text_idx
+    on ( m.id  = j.id_int)
+} {1 {no query solution}}
+
+do_catchsql_test 70.3 {
+  select * from maintable, joinme INDEXED by joinme_id_text_idx
+} {1 {no query solution}}
+
+#-------------------------------------------------------------------------
+# This is testing that the "phantom" runs feature works.
+#
+# UPDATE: Said feature was dropped early in development. But the test 
+# remains valid.
+reset_db
+do_execsql_test 71.1 {
+  CREATE TABLE t1(x);
+  INSERT INTO t1 VALUES(randomblob(1024));           --   1
+  INSERT INTO t1 SELECT randomblob(1024) FROM t1;    --   2
+  INSERT INTO t1 SELECT randomblob(1024) FROM t1;    --   4
+  INSERT INTO t1 SELECT randomblob(1024) FROM t1;    --   8
+  INSERT INTO t1 SELECT randomblob(1024) FROM t1;    --  16
+  INSERT INTO t1 SELECT randomblob(1024) FROM t1;    --  32
+  INSERT INTO t1 SELECT randomblob(1024) FROM t1;    --  64
+}
+do_execsql_test 71.2 { SELECT count(*) FROM t1 } 64
+db close
+sqlite4 db test.db
+do_execsql_test 71.3 { SELECT count(*) FROM t1 } 64
+do_test 71.4 { 
+  expr {[file size test.db] <= 256*1024}
+} {1}
+
+#-------------------------------------------------------------------------
+# This is testing that the "phantom" runs feature works with mmap.
+#
+# UPDATE: Said feature was dropped early in development. But the test 
+# remains valid.
+reset_db
+
+#do_test 72.0.1 { sqlite4_lsm_config db main mmap   } 0
+#do_test 72.0.2 { sqlite4_lsm_config db main mmap 1 } 1
+#do_test 72.0.3 { sqlite4_lsm_config db main mmap   } 1
+
+do_execsql_test 72.1 {
+  CREATE TABLE t1(x);
+  INSERT INTO t1 VALUES(randomblob(1024));           --   1
+  INSERT INTO t1 SELECT randomblob(1024) FROM t1;    --   2
+  INSERT INTO t1 SELECT randomblob(1024) FROM t1;    --   4
+  INSERT INTO t1 SELECT randomblob(1024) FROM t1;    --   8
+  INSERT INTO t1 SELECT randomblob(1024) FROM t1;    --  16
+  INSERT INTO t1 SELECT randomblob(1024) FROM t1;    --  32
+  INSERT INTO t1 SELECT randomblob(1024) FROM t1;    --  64
+}
+do_execsql_test 72.2 { SELECT count(*) FROM t1 } 64
+db close
+
+sqlite4 db test.db
+do_execsql_test 72.3 { SELECT count(*) FROM t1 } 64
+do_test 72.4 { 
+  expr {[file size test.db] <= 2*1024*1024}
+} {1}
+
+#-------------------------------------------------------------------------
+#
+forcedelete test2.db
+reset_db
+sqlite4 db2 [file join . test.db]
+sqlite4 db3 [file join [pwd] test.db]
+
+sqlite4 db4 [file join .. [file tail [pwd]] test.db]
+
+do_execsql_test 73.1 {
+  CREATE TABLE t1(a, b);
+  INSERT INTO t1 VALUES(1, 2);
+  INSERT INTO t1 VALUES(3, 4);
+}
+do_test 73.2 { db2 eval { SELECT * FROM t1 } } {1 2 3 4}
+do_test 73.3 { db3 eval { SELECT * FROM t1 } } {1 2 3 4}
+do_test 73.4 { db4 eval { SELECT * FROM t1 } } {1 2 3 4}
+
+db2 close
+db3 close
+db4 close
+
+sqlite4 db2 test2.db
+do_test 73.5 { catch { db2 eval { SELECT * FROM t1 } } } {1}
+db2 close
+
+#-------------------------------------------------------------------------
+#
+reset_db
+
+do_execsql_test 74.1 { CREATE TABLE t1(a PRIMARY KEY, b) }
+
+do_test 74.2 {
+  for {set i 0} {$i<30} {incr i} {
+    db close
+    sqlite4 db test.db
+    execsql "INSERT INTO t1 VALUES('k$i', randstr(500,500))"
+  }
+} {}
+db close
+
+#-------------------------------------------------------------------------
+# Index on a blob.
+#
+reset_db
+
+do_execsql_test 75.1 { 
+  CREATE TABLE t1(a PRIMARY KEY, b UNIQUE);
+  INSERT INTO t1 VALUES(x'12345678', x'12345678');
+}
+
+do_execsql_test 75.2 { 
+  SELECT count(*) FROM t1 WHERE a = x'12345678'
+} 1
+
+do_execsql_test 75.3 { 
+  SELECT count(*) FROM t1 WHERE b = x'12345678'
+} 1
+
+#-------------------------------------------------------------------------
+# Real vs. integer values.
+#
+reset_db
+do_execsql_test 76.1 {
+  CREATE TABLE t1(a REAL);
+  CREATE TABLE log(x);
+  CREATE TRIGGER BEFORE INSERT ON t1 BEGIN
+    INSERT INTO log VALUES('value = ' || new.a);
+  END;
+}
+
+do_execsql_test 76.2 { INSERT INTO t1 VALUES(-23) }
+do_execsql_test 76.3 {
+  SELECT * FROM log;
+} {{value = -23.0}}
+
+do_execsql_test 76.4 {
+  CREATE TABLE t2(a REAL, str);
+}
+do_execsql_test 76.5 {
+  INSERT INTO t2 VALUES(0.0012345, '');
+}
+do_execsql_test 76.6 { SELECT cast(a AS TEXT) FROM t2 } {0.0012345}
+
+#-------------------------------------------------------------------------
+# Integer keys.
+#
+reset_db
+do_execsql_test 77.1 { CREATE TABLE t1(x) }
+do_test 77.2 {
+  for {set i 0} {$i < 99} {incr i} {
+    execsql { INSERT INTO t1 VALUES(NULL) }
+  }
+} {}
+do_execsql_test 77.3 { INSERT INTO t1 VALUES(NULL) }
+do_execsql_test 77.4 { INSERT INTO t1 VALUES(NULL) }
+
+#-------------------------------------------------------------------------
+#
+reset_db
+do_test 78.1 {
+  execsql {
+    CREATE TABLE t1 (id INTEGER PRIMARY KEY, v);
+    INSERT INTO t1 VALUES(42, 3);
+  }
+} {}
+
+do_execsql_test 78.2 {
+    SELECT id, v FROM t1 WHERE id>1.5;
+} {42 3}
+
+#-------------------------------------------------------------------------
+# Ticket f3d7aab1e5
+#
+reset_db
+do_test 79.1 {
+  set r1 [expr 0.684377705997032]
+  execsql "CREATE TABLE t1(x UNIQUE)"
+  execsql "INSERT INTO t1 VALUES($r1)"
+  execsql "PRAGMA integrity_check"
+} {ok}
+
+reset_db
+do_execsql_test 80.1 {
+  CREATE TABLE t1(tbl, idx, nEq, nLt, nDLt, sample);
+  INSERT INTO t1 VALUES('t1', 't1i3', 1, 0, 0, x'1802');
+  INSERT INTO t1 VALUES('t1', 't1i3', 1, 1, 1, x'1802');
+  INSERT INTO t1 VALUES('t1', 't1i2', 1, 0, 0, x'1804');
+  INSERT INTO t1 VALUES('t1', 't1i2', 1, 1, 1, x'1806');
+  INSERT INTO t1 VALUES('t1', 't1i1', 1, 0, 0, x'1802');
+  INSERT INTO t1 VALUES('t1', 't1i1', 1, 1, 1, x'1802');
+  INSERT INTO t1 VALUES('t1', 't1', 1, 0, 0, x'1802');
+  INSERT INTO t1 VALUES('t1', 't1', 1, 1, 1, x'1804');
+}
+
+do_execsql_test 80.2 {
+  SELECT idx, count(*), sum(length(sample)) FROM t1 GROUP BY idx
+} {t1 2 4 t1i1 2 4 t1i2 2 4 t1i3 2 4}
+
+#-------------------------------------------------------------------------
+reset_db
+do_test 81.1 {
+  execsql {
+    CREATE TABLE t1(a TEXT);
+    INSERT INTO t1 VALUES(5.4e-08);
+    SELECT a FROM t1;
+  }
+} {5.4e-8}
+
+#-------------------------------------------------------------------------
+reset_db
+do_test 82.1 {
+  execsql { CREATE TABLE t1(a TEXT) }
+  execsql { SELECT * FROM sqlite_master }
+} {table t1 t1 2 {CREATE TABLE t1(a TEXT)}}
+
+do_test 82.2 {
+  execsql { DROP TABLE t1 }
+  execsql { CREATE TABLE t1(a TEXT) }
+  execsql { SELECT * FROM sqlite_master }
+} {table t1 t1 2 {CREATE TABLE t1(a TEXT)}}
+
+#-------------------------------------------------------------------------
+reset_db
+do_test 83.1 {
+  execsql { SELECT CAST('2.12e-01ABC' AS INT) }
+} {2}
+do_test 83.2 {
+  execsql { SELECT CAST('   -2.12e-01ABC' AS INT) }
+} {-2}
+do_test 83.3 {
+  execsql { SELECT CAST('45.0' AS NUMERIC) }
+} {45}
+do_test 83.4 {
+  execsql { SELECT CAST(0.0 AS TEXT) }
+} {0.0}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 84.1 {
+  SELECT 1e600 * 1e600 * 0.0;
+} {{}}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 85.1 {
+  CREATE TABLE t1(x INT, y COLLATE NOCASE);
+  INSERT INTO t1(x,y) VALUES(2,CAST(x'02' AS TEXT));
+  CREATE TABLE t3(x INT, y COLLATE NOCASE);
+  INSERT INTO t3 SELECT x, 'abc' || y || 'xyz' FROM t1;
+  CREATE INDEX i3 ON t3(y);
+  SELECT x FROM t3 WHERE y LIKE 'abcX%';
+} {}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 86.0 { 
+  SELECT * FROM sqlite_master;
+} {}
+do_execsql_test 86.1 { 
+  CREATE TABLE t1(a PRIMARY KEY, b);
+}
+do_execsql_test 86.2 { 
+  INSERT INTO t1 VALUES(1, 'one');
+}
+do_execsql_test 86.3 { 
+  SELECT * FROM t1;
+} {1 one}
+do_execsql_test 86.4 { 
+  SELECT * FROM t1 WHERE a = 1;
+} {1 one}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 87.1 {
+  CREATE TABLE t6(a INTEGER PRIMARY KEY, b TEXT);
+  CREATE INDEX t6i1 ON t6(b);
+} {}
+do_eqp_test 87.2 {
+  SELECT * FROM t6 ORDER BY b, a;
+} {0 0 0 {SCAN TABLE t6 USING INDEX t6i1}}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 88.1 {
+  CREATE TABLE t8(a INTEGER PRIMARY KEY, b TEXT);
+  CREATE UNIQUE INDEX t8i ON t8(b);
+}
+do_eqp_test 88.2 {
+  SELECT * FROM t8 x ORDER BY x.b, x.a, x.b||x.a
+} {0 0 0 {SCAN TABLE t8 AS x USING INDEX t8i}}
+
+#-------------------------------------------------------------------------
+reset_db
+do_execsql_test 89.1 {
+  CREATE TABLE t1(a COLLATE NOCASE);
+  CREATE INDEX i1 ON t1(a);
+}
+do_eqp_test 89.2 {
+  SELECT * FROM t1 ORDER BY a;
+} {0 0 0 {SCAN TABLE t1 USING INDEX i1}}
+
+#-------------------------------------------------------------------------
+
+proc nEphemeral {sql} {
+  set nEph 0
+  foreach op [execsql "EXPLAIN $sql"] {
+    if {$op eq "OpenEphemeral"} {incr nEph}
+  }
+  set nEph
+}
+
+foreach {tn schema} {
+  1 {
+    CREATE TABLE t1(a PRIMARY KEY, b);
+    CREATE TABLE t2(x PRIMARY KEY, y);
+  }
+  2 {
+    CREATE TABLE t1(b, a PRIMARY KEY);
+    CREATE TABLE t2(x PRIMARY KEY, y);
+  }
+  3 {
+    CREATE TABLE t1(b, a);
+    CREATE UNIQUE INDEX i1 ON t1(a) COVERING (b, a);
+    CREATE TABLE t2(x PRIMARY KEY, y);
+  }
+  4 {
+    CREATE TABLE t1(b, a);
+    CREATE UNIQUE INDEX i1 ON t1(a) COVERING (a, b);
+    CREATE TABLE t2(y, x PRIMARY KEY);
+  }
+} {
+  reset_db
+
+  do_execsql_test 90.$tn.0 $schema
+
+  do_execsql_test 90.$tn.1 {
+    INSERT INTO t2(x, y) VALUES(1, 'one');
+    INSERT INTO t2(x, y) VALUES(2, 'two');
+    INSERT INTO t2(x, y) VALUES(3, 'three');
+    INSERT INTO t2(x, y) VALUES(4, 'four');
+    INSERT INTO t2(x, y) VALUES(5, 'five');
+    INSERT INTO t2(x, y) VALUES(6, 'six');
+
+    INSERT INTO t1(a, b) VALUES(2, 'two');
+    INSERT INTO t1(a, b) VALUES(3, 'three');
+    INSERT INTO t1(a, b) VALUES(5, 'five');
+  }
+
+  do_execsql_test 90.$tn.2 {
+    SELECT y FROM t2 WHERE x IN (SELECT a FROM t1);
+  } {two three five}
+
+  do_test 90.$tn.3 {
+    nEphemeral "SELECT y FROM t2 WHERE x IN (SELECT a FROM t1)"
+  } 0
+}
+
+
+finish_test
+

@@ -1,0 +1,1545 @@
+/*
+** 2001 September 15
+**
+** The author disclaims copyright to this source code.  In place of
+** a legal notice, here is a blessing:
+**
+**    May you do good and not evil.
+**    May you find forgiveness for yourself and forgive others.
+**    May you share freely, never taking more than you give.
+**
+*************************************************************************
+** This file contains C code routines that are called by the parser
+** to handle INSERT statements in SQLite.
+*/
+#include "sqliteInt.h"
+
+/*
+** Generate code that will open a table for reading.
+*/
+void sqlite4OpenTable(
+  Parse *p,       /* Generate code into this VDBE */
+  int iCur,       /* The cursor number of the table */
+  int iDb,        /* The database index in sqlite4.aDb[] */
+  Table *pTab,    /* The table to be opened */
+  int opcode      /* OP_OpenRead or OP_OpenWrite */
+){
+  Index *pPk = sqlite4FindPrimaryKey(pTab, 0);
+  sqlite4OpenIndex(p, iCur, iDb, pPk, opcode);
+}
+
+/*
+** Open VDBE cursor iCur to access index pIdx. pIdx is guaranteed to be
+** a part of database iDb.
+*/
+void sqlite4OpenIndex(
+  Parse *p,                       /* Current parser context */
+  int iCur,                       /* The cursor number of the cursor to open */
+  int iDb,                        /* The database index in sqlite4.aDb[] */
+  Index *pIdx,                    /* The index to be opened */
+  int opcode                      /* OP_OpenRead or OP_OpenWrite */
+){
+  KeyInfo *pKey;                /* KeyInfo structure describing PK index */
+  Vdbe *v;                      /* VM to write code into */
+
+  assert( opcode==OP_OpenWrite || opcode==OP_OpenRead );
+  assert( pIdx->tnum>0 );
+
+  v = sqlite4GetVdbe(p);
+  pKey = sqlite4IndexKeyinfo(p, pIdx);
+  testcase( pKey==0 );
+
+  sqlite4VdbeAddOp3(v, opcode, iCur, pIdx->tnum, iDb);
+  sqlite4VdbeChangeP4(v, -1, (const char *)pKey, P4_KEYINFO_HANDOFF);
+  VdbeComment((v, "%s", pIdx->zName));
+}
+
+/*
+** Generate code that will open the primary key of a table for either 
+** reading (if opcode==OP_OpenRead) or writing (if opcode==OP_OpenWrite).
+*/
+void sqlite4OpenPrimaryKey(
+  Parse *p,                       /* Current parser context */
+  int iCur,                       /* The cursor number of the cursor to open */
+  int iDb,                        /* The database index in sqlite4.aDb[] */
+  Table *pTab,                    /* The table to be opened */
+  int opcode                      /* OP_OpenRead or OP_OpenWrite */
+){
+  assert( opcode==OP_OpenWrite || opcode==OP_OpenRead );
+  if( IsVirtual(pTab)==0 ){
+    Index *pIdx;                  /* PRIMARY KEY index for table pTab */
+
+    pIdx = sqlite4FindPrimaryKey(pTab, 0);
+    sqlite4OpenIndex(p, iCur, iDb, pIdx, opcode);
+    assert( pIdx->eIndexType==SQLITE4_INDEX_PRIMARYKEY );
+  }
+}
+
+/*
+** Return a pointer to the column affinity string associated with index
+** pIdx. A column affinity string has one character for each column in 
+** the index key. If the index is the PRIMARY KEY of its table, the key
+** consists of the index columns only. Otherwise, it consists of the
+** indexed columns, followed by the columns that make up the tables PRIMARY
+** KEY. For each column in the index key, the corresponding character of
+** the affinity string is set according to the column affinity, as follows:
+**
+**  Character      Column affinity
+**  ------------------------------
+**  'a'            TEXT
+**  'b'            NONE
+**  'c'            NUMERIC
+**  'd'            INTEGER
+**  'e'            REAL
+**
+** Memory for the buffer containing the column index affinity string
+** is managed along with the rest of the Index structure. It will be
+** released when sqlite4DeleteIndex() is called.
+*/
+const char *sqlite4IndexAffinityStr(Vdbe *v, Index *pIdx){
+  /* The first time a column affinity string for a particular index is
+  ** required, it is allocated and populated here. It is then stored as
+  ** a member of the Index structure for subsequent use. The column 
+  ** affinity string will eventually be deleted by sqliteDeleteIndex() 
+  ** when the Index structure itself is cleaned up.  */
+  if( !pIdx->zColAff ){
+    sqlite4 *db = sqlite4VdbeDb(v);
+    Table *pTab = pIdx->pTable;   /* Table pIdx is attached to */
+    int n;                        /* Iterator variable for zAff */
+    Index *pPk;                   /* Primary key on same table as pIdx */
+    Index *p;                     /* Iterator variable */
+    char *zAff;                   /* Affinity string to populate and return */
+    int nAff;                     /* Characters in zAff */
+
+    /* Determine how many characters are in the affinity string. There is
+    ** one character for each indexed column, and, if the index is not itself
+    ** the primary key, one character for each column in the primary key
+    ** of the table pIdx indexes.  */ 
+    nAff = pIdx->nColumn;
+    pPk = sqlite4FindPrimaryKey(pTab, 0);
+    if( pPk && pIdx!=pPk ){
+      nAff += pPk->nColumn;
+    }
+
+    /* Allocate space for the affinity string */
+    zAff = pIdx->zColAff = (char *)sqlite4DbMallocRaw(0, nAff+1);
+    if( !zAff ){
+      db->mallocFailed = 1;
+      return 0;
+    }
+
+    /* Populate the affinity string. This loop runs either once or twice.
+    ** The first iteration populates zAff with affinities according to the
+    ** columns indexed by pIdx.  If pIdx is not itself the table's primary 
+    ** key, then the second iteration of the loop adds the primary key 
+    ** columns to zAff.  */
+    for(n=0, p=pIdx; p; p=(p==pPk ? (Index*)0 : pPk)){
+      int i;
+      for(i=0; i<p->nColumn; i++){
+        int iCol = p->aiColumn[i];
+        zAff[n++] = (iCol<0) ? SQLITE4_AFF_INTEGER : pTab->aCol[iCol].affinity;
+      }
+    }
+    zAff[n] = 0;
+  }
+ 
+  return pIdx->zColAff;
+}
+
+/*
+** Set P4 of the most recently inserted opcode to a column affinity
+** string for table pTab. A column affinity string has one character
+** for each column indexed by the index, according to the affinity of the
+** column:
+**
+**  Character      Column affinity
+**  ------------------------------
+**  'a'            TEXT
+**  'b'            NONE
+**  'c'            NUMERIC
+**  'd'            INTEGER
+**  'e'            REAL
+*/
+void sqlite4TableAffinityStr(Vdbe *v, Table *pTab){
+  /* The first time a column affinity string for a particular table
+  ** is required, it is allocated and populated here. It is then 
+  ** stored as a member of the Table structure for subsequent use.
+  **
+  ** The column affinity string will eventually be deleted by
+  ** sqlite4DeleteTable() when the Table structure itself is cleaned up.
+  */
+  if( !pTab->zColAff ){
+    char *zColAff;
+    int i;
+    sqlite4 *db = sqlite4VdbeDb(v);
+
+    zColAff = (char *)sqlite4DbMallocRaw(0, pTab->nCol+1);
+    if( !zColAff ){
+      db->mallocFailed = 1;
+      return;
+    }
+
+    for(i=0; i<pTab->nCol; i++){
+      zColAff[i] = pTab->aCol[i].affinity;
+    }
+    zColAff[pTab->nCol] = '\0';
+
+    pTab->zColAff = zColAff;
+  }
+
+  sqlite4VdbeChangeP4(v, -1, pTab->zColAff, P4_TRANSIENT);
+}
+
+/*
+** Return non-zero if the table pTab in database iDb or any of its indices
+** have been opened at any point in the VDBE program beginning at location
+** iStartAddr throught the end of the program.  This is used to see if 
+** a statement of the form  "INSERT INTO <iDb, pTab> SELECT ..." can 
+** run without using temporary table for the results of the SELECT. 
+**
+** Also return true if the statement accesses the sqlite_kvstore table.
+*/
+static int readsTable(Parse *p, int iStartAddr, int iDb, Table *pTab){
+  Vdbe *v = sqlite4GetVdbe(p);
+  int i;
+  int iEnd = sqlite4VdbeCurrentAddr(v);
+#ifndef SQLITE4_OMIT_VIRTUALTABLE
+  VTable *pVTab = IsVirtual(pTab) ? sqlite4GetVTable(p->db, pTab) : 0;
+#endif
+
+  for(i=iStartAddr; i<iEnd; i++){
+    VdbeOp *pOp = sqlite4VdbeGetOp(v, i);
+    assert( pOp!=0 );
+    if( pOp->opcode==OP_OpenRead && pOp->p3==iDb ){
+      Index *pIndex;
+      int tnum = pOp->p2;
+      if( tnum==KVSTORE_ROOT ) return 1;
+      for(pIndex=pTab->pIndex; pIndex; pIndex=pIndex->pNext){
+        if( tnum==pIndex->tnum ){
+          return 1;
+        }
+      }
+    }
+#ifndef SQLITE4_OMIT_VIRTUALTABLE
+    if( pOp->opcode==OP_VOpen && pOp->p4.pVtab==pVTab ){
+      assert( pOp->p4.pVtab!=0 );
+      assert( pOp->p4type==P4_VTAB );
+      return 1;
+    }
+#endif
+  }
+  return 0;
+}
+
+#ifndef SQLITE4_OMIT_AUTOINCREMENT
+/*
+** Locate or create an AutoincInfo structure associated with table pTab
+** which is in database iDb.  Return the register number for the register
+** that holds the maximum rowid.
+**
+** There is at most one AutoincInfo structure per table even if the
+** same table is autoincremented multiple times due to inserts within
+** triggers.  A new AutoincInfo structure is created if this is the
+** first use of table pTab.  On 2nd and subsequent uses, the original
+** AutoincInfo structure is used.
+**
+** Three memory locations are allocated:
+**
+**   (1)  Register to hold the name of the pTab table.
+**   (2)  Register to hold the maximum ROWID of pTab.
+**   (3)  Register to hold the rowid in sqlite_sequence of pTab
+**
+** The 2nd register is the one that is returned.  That is all the
+** insert routine needs to know about.
+*/
+static int autoIncBegin(
+  Parse *pParse,      /* Parsing context */
+  int iDb,            /* Index of the database holding pTab */
+  Table *pTab         /* The table we are writing to */
+){
+  int memId = 0;      /* Register holding maximum rowid */
+  if( pTab->tabFlags & TF_Autoincrement ){
+    Parse *pToplevel = sqlite4ParseToplevel(pParse);
+    AutoincInfo *pInfo;
+
+    pInfo = pToplevel->pAinc;
+    while( pInfo && pInfo->pTab!=pTab ){ pInfo = pInfo->pNext; }
+    if( pInfo==0 ){
+      pInfo = sqlite4DbMallocRaw(pParse->db, sizeof(*pInfo));
+      if( pInfo==0 ) return 0;
+      pInfo->pNext = pToplevel->pAinc;
+      pToplevel->pAinc = pInfo;
+      pInfo->pTab = pTab;
+      pInfo->iDb = iDb;
+      pToplevel->nMem++;                  /* Register to hold name of table */
+      pInfo->regCtr = ++pToplevel->nMem;  /* Max rowid register */
+      pToplevel->nMem++;                  /* Rowid in sqlite_sequence */
+    }
+    memId = pInfo->regCtr;
+  }
+  return memId;
+}
+
+/*
+** This routine generates code that will initialize all of the
+** register used by the autoincrement tracker.  
+*/
+void sqlite4AutoincrementBegin(Parse *pParse){
+  AutoincInfo *p;            /* Information about an AUTOINCREMENT */
+  sqlite4 *db = pParse->db;  /* The database connection */
+  Db *pDb;                   /* Database only autoinc table */
+  int memId;                 /* Register holding max rowid */
+  int addr;                  /* A VDBE address */
+  Vdbe *v = pParse->pVdbe;   /* VDBE under construction */
+
+  /* This routine is never called during trigger-generation.  It is
+  ** only called from the top-level */
+  assert( pParse->pTriggerTab==0 );
+  assert( pParse==sqlite4ParseToplevel(pParse) );
+
+  assert( v );   /* We failed long ago if this is not so */
+  for(p = pParse->pAinc; p; p = p->pNext){
+    pDb = &db->aDb[p->iDb];
+    memId = p->regCtr;
+    sqlite4OpenTable(pParse, 0, p->iDb, pDb->pSchema->pSeqTab, OP_OpenRead);
+    sqlite4VdbeAddOp3(v, OP_Null, 0, memId, memId+1);
+    addr = sqlite4VdbeCurrentAddr(v);
+    sqlite4VdbeAddOp4(v, OP_String8, 0, memId-1, 0, p->pTab->zName, 0);
+    sqlite4VdbeAddOp2(v, OP_Rewind, 0, addr+9);
+    sqlite4VdbeAddOp3(v, OP_Column, 0, 0, memId);
+    sqlite4VdbeAddOp3(v, OP_Ne, memId-1, addr+7, memId);
+    sqlite4VdbeChangeP5(v, SQLITE4_JUMPIFNULL);
+    sqlite4VdbeAddOp2(v, OP_Rowid, 0, memId+1);
+    sqlite4VdbeAddOp3(v, OP_Column, 0, 1, memId);
+    sqlite4VdbeAddOp2(v, OP_Goto, 0, addr+9);
+    sqlite4VdbeAddOp2(v, OP_Next, 0, addr+2);
+    sqlite4VdbeAddOp2(v, OP_Integer, 0, memId);
+    sqlite4VdbeAddOp0(v, OP_Close);
+  }
+}
+
+/*
+** Update the maximum rowid for an autoincrement calculation.
+**
+** This routine should be called when the top of the stack holds a
+** new rowid that is about to be inserted.  If that new rowid is
+** larger than the maximum rowid in the memId memory cell, then the
+** memory cell is updated.  The stack is unchanged.
+*/
+static void autoIncStep(Parse *pParse, int memId, int regRowid){
+  if( memId>0 ){
+    sqlite4VdbeAddOp2(pParse->pVdbe, OP_MemMax, memId, regRowid);
+  }
+}
+
+/*
+** This routine generates the code needed to write autoincrement
+** maximum rowid values back into the sqlite_sequence register.
+** Every statement that might do an INSERT into an autoincrement
+** table (either directly or through triggers) needs to call this
+** routine just before the "exit" code.
+*/
+void sqlite4AutoincrementEnd(Parse *pParse){
+  AutoincInfo *p;
+  Vdbe *v = pParse->pVdbe;
+  sqlite4 *db = pParse->db;
+
+  assert( v );
+  for(p = pParse->pAinc; p; p = p->pNext){
+    Db *pDb = &db->aDb[p->iDb];
+    int j1, j2, j3, j4, j5;
+    int iRec;
+    int memId = p->regCtr;
+
+    iRec = sqlite4GetTempReg(pParse);
+    sqlite4OpenTable(pParse, 0, p->iDb, pDb->pSchema->pSeqTab, OP_OpenWrite);
+    j1 = sqlite4VdbeAddOp1(v, OP_NotNull, memId+1);
+    j2 = sqlite4VdbeAddOp0(v, OP_Rewind);
+    j3 = sqlite4VdbeAddOp3(v, OP_Column, 0, 0, iRec);
+    j4 = sqlite4VdbeAddOp3(v, OP_Eq, memId-1, 0, iRec);
+    sqlite4VdbeAddOp2(v, OP_Next, 0, j3);
+    sqlite4VdbeJumpHere(v, j2);
+    sqlite4VdbeAddOp2(v, OP_NewRowid, 0, memId+1);
+    j5 = sqlite4VdbeAddOp0(v, OP_Goto);
+    sqlite4VdbeJumpHere(v, j4);
+    sqlite4VdbeAddOp2(v, OP_Rowid, 0, memId+1);
+    sqlite4VdbeJumpHere(v, j1);
+    sqlite4VdbeJumpHere(v, j5);
+    sqlite4VdbeAddOp3(v, OP_MakeRecord, memId-1, 2, iRec);
+    sqlite4VdbeAddOp3(v, OP_Insert, 0, iRec, memId+1);
+    sqlite4VdbeAddOp0(v, OP_Close);
+    sqlite4ReleaseTempReg(pParse, iRec);
+  }
+}
+#else
+/*
+** If SQLITE4_OMIT_AUTOINCREMENT is defined, then the three routines
+** above are all no-ops
+*/
+# define autoIncBegin(A,B,C) (0)
+# define autoIncStep(A,B,C)
+#endif /* SQLITE4_OMIT_AUTOINCREMENT */
+
+
+/* Forward declaration */
+/*static FIXME: make static when this function gets used. */ int xferOptimization(
+  Parse *pParse,        /* Parser context */
+  Table *pDest,         /* The table we are inserting into */
+  Select *pSelect,      /* A SELECT statement to use as the data source */
+  int onError,          /* How to handle constraint errors */
+  int iDbDest           /* The database of pDest */
+);
+
+/*
+** This routine is call to handle SQL of the following forms:
+**
+**    insert into TABLE (IDLIST) values(EXPRLIST)
+**    insert into TABLE (IDLIST) select
+**
+** The IDLIST following the table name is always optional.  If omitted,
+** then a list of all columns for the table is substituted.  The IDLIST
+** appears in the pColumn parameter.  pColumn is NULL if IDLIST is omitted.
+**
+** The pList parameter holds EXPRLIST in the first form of the INSERT
+** statement above, and pSelect is NULL.  For the second form, pList is
+** NULL and pSelect is a pointer to the select statement used to generate
+** data for the insert.
+**
+** The code generated follows one of four templates.  For a simple
+** select with data coming from a VALUES clause, the code executes
+** once straight down through.  Pseudo-code follows (we call this
+** the "1st template"):
+**
+**         open write cursor to <table> and its indices
+**         puts VALUES clause expressions onto the stack
+**         write the resulting record into <table>
+**         cleanup
+**
+** The three remaining templates assume the statement is of the form
+**
+**   INSERT INTO <table> SELECT ...
+**
+** If the SELECT clause is of the restricted form "SELECT * FROM <table2>" -
+** in other words if the SELECT pulls all columns from a single table
+** and there is no WHERE or LIMIT or GROUP BY or ORDER BY clauses, and
+** if <table2> and <table1> are distinct tables but have identical
+** schemas, including all the same indices, then a special optimization
+** is invoked that copies raw records from <table2> over to <table1>.
+** See the xferOptimization() function for the implementation of this
+** template.  This is the 2nd template.
+**
+**         open a write cursor to <table>
+**         open read cursor on <table2>
+**         transfer all records in <table2> over to <table>
+**         close cursors
+**         foreach index on <table>
+**           open a write cursor on the <table> index
+**           open a read cursor on the corresponding <table2> index
+**           transfer all records from the read to the write cursors
+**           close cursors
+**         end foreach
+**
+** The 3rd template is for when the second template does not apply
+** and the SELECT clause does not read from <table> at any time.
+** The generated code follows this template:
+**
+**         EOF <- 0
+**         X <- A
+**         goto B
+**      A: setup for the SELECT
+**         loop over the rows in the SELECT
+**           load values into registers R..R+n
+**           yield X
+**         end loop
+**         cleanup after the SELECT
+**         EOF <- 1
+**         yield X
+**         goto A
+**      B: open write cursor to <table> and its indices
+**      C: yield X
+**         if EOF goto D
+**         insert the select result into <table> from R..R+n
+**         goto C
+**      D: cleanup
+**
+** The 4th template is used if the insert statement takes its
+** values from a SELECT but the data is being inserted into a table
+** that is also read as part of the SELECT.  In the third form,
+** we have to use a intermediate table to store the results of
+** the select.  The template is like this:
+**
+**         EOF <- 0
+**         X <- A
+**         goto B
+**      A: setup for the SELECT
+**         loop over the tables in the SELECT
+**           load value into register R..R+n
+**           yield X
+**         end loop
+**         cleanup after the SELECT
+**         EOF <- 1
+**         yield X
+**         halt-error
+**      B: open temp table
+**      L: yield X
+**         if EOF goto M
+**         insert row from R..R+n into temp table
+**         goto L
+**      M: open write cursor to <table> and its indices
+**         rewind temp table
+**      C: loop over rows of intermediate table
+**           transfer values form intermediate table into <table>
+**         end loop
+**      D: cleanup
+*/
+void sqlite4Insert(
+  Parse *pParse,        /* Parser context */
+  SrcList *pTabList,    /* Name of table into which we are inserting */
+  ExprList *pList,      /* List of values to be inserted */
+  Select *pSelect,      /* A SELECT statement to use as the data source */
+  IdList *pColumn,      /* Column names corresponding to IDLIST. */
+  int onError           /* How to handle constraint errors */
+){
+  sqlite4 *db;          /* The main database structure */
+  Table *pTab;          /* The table to insert into.  aka TABLE */
+  char *zTab;           /* Name of the table into which we are inserting */
+  const char *zDb;      /* Name of the database holding this table */
+  int i, j, idx;        /* Loop counters */
+  Vdbe *v;              /* Generate code into this virtual machine */
+  Index *pIdx;          /* For looping over indices of the table */
+  int nColumn;          /* Number of columns in the data */
+  int nHidden = 0;      /* Number of hidden columns if TABLE is virtual */
+  int baseCur = 0;      /* VDBE Cursor number for pTab */
+  int endOfLoop;        /* Label for the end of the insertion loop */
+  int useTempTable = 0; /* Store SELECT results in intermediate table */
+  int srcTab = 0;       /* Data comes from this temporary cursor if >=0 */
+  int addrInsTop = 0;   /* Jump to label "D" */
+  int addrCont = 0;     /* Top of insert loop. Label "C" in templates 3 and 4 */
+  int addrSelect = 0;   /* Address of coroutine that implements the SELECT */
+  SelectDest dest;      /* Destination for SELECT on rhs of INSERT */
+  int iDb;              /* Index of database holding TABLE */
+  Db *pDb;              /* The database containing table being inserted into */
+  int appendFlag = 0;   /* True if the insert is likely to be an append */
+  int iPk;              /* Cursor offset of PK index cursor */
+  Index *pPk;           /* Primary key for table pTab */
+  int iIntPKCol = -1;   /* Column of INTEGER PRIMARY KEY or -1 */
+  int bImplicitPK;      /* True if table pTab has an implicit PK */
+
+  /* Register allocations */
+  int regFromSelect = 0;/* Base register for data coming from SELECT */
+  int regEof = 0;       /* Register recording end of SELECT data */
+  int *aRegIdx = 0;     /* One register allocated to each index */
+  int regContent;       /* First register in column value array */
+  int regRowid;         /* If bImplicitPK, register holding IPK */
+  int regAutoinc;       /* Register holding the AUTOINCREMENT counter */
+
+#ifndef SQLITE4_OMIT_TRIGGER
+  int isView;                 /* True if attempting to insert into a view */
+  Trigger *pTrigger;          /* List of triggers on pTab, if required */
+  int tmask;                  /* Mask of trigger times */
+#endif
+
+  db = pParse->db;
+  memset(&dest, 0, sizeof(dest));
+  if( pParse->nErr || db->mallocFailed ){
+    goto insert_cleanup;
+  }
+
+  /* Locate the table into which we will be inserting new information. */
+  assert( pTabList->nSrc==1 );
+  zTab = pTabList->a[0].zName;
+  if( NEVER(zTab==0) ) goto insert_cleanup;
+  pTab = sqlite4SrcListLookup(pParse, pTabList);
+  if( pTab==0 ){
+    goto insert_cleanup;
+  }
+  iDb = sqlite4SchemaToIndex(db, pTab->pSchema);
+  assert( iDb<db->nDb );
+  pDb = &db->aDb[iDb];
+  zDb = pDb->zName;
+  if( sqlite4AuthCheck(pParse, SQLITE4_INSERT, pTab->zName, 0, zDb) ){
+    goto insert_cleanup;
+  }
+
+  /* Set bImplicitPK to true for an implicit PRIMARY KEY, or false otherwise.
+  ** Also set pPk to point to the primary key, and iPk to the cursor offset
+  ** of the primary key cursor (i.e. so that the cursor opened on the primary
+  ** key index is VDBE cursor (baseCur+iPk).  */
+  pPk = sqlite4FindPrimaryKey(pTab, &iPk);
+  assert( (pPk==0)==IsView(pTab) );
+  if( pPk ){
+    bImplicitPK = pPk->aiColumn[0]==(-1);
+    if( pPk->fIndex & IDX_IntPK ){
+      assert( pPk->nColumn==1 );
+      iIntPKCol = pPk->aiColumn[0];
+    }
+  }else{
+    bImplicitPK = 0;
+  }
+      
+
+  /* Figure out if we have any triggers and if the table being
+  ** inserted into is a view. */
+#ifndef SQLITE4_OMIT_TRIGGER
+  pTrigger = sqlite4TriggersExist(pParse, pTab, TK_INSERT, 0, &tmask);
+  isView = pTab->pSelect!=0;
+#else
+# define pTrigger 0
+# define tmask 0
+# define isView 0
+#endif
+#ifdef SQLITE4_OMIT_VIEW
+# undef isView
+# define isView 0
+#endif
+  assert( (pTrigger && tmask) || (pTrigger==0 && tmask==0) );
+
+  /* If pTab is really a view, make sure it has been initialized.
+  ** ViewGetColumnNames() is a no-op if pTab is not a view (or virtual 
+  ** module table).  */
+  if( sqlite4ViewGetColumnNames(pParse, pTab) ){
+    goto insert_cleanup;
+  }
+
+  /* Ensure that:
+  **   (a) the table is not read-only (e.g. sqlite_master, sqlite_stat), and
+  **   (b) that if it is a view then ON INSERT triggers exist
+  */
+  if( sqlite4IsReadOnly(pParse, pTab, tmask) ){
+    goto insert_cleanup;
+  }
+
+  /* Allocate a VDBE and begin a write transaction */
+  v = sqlite4GetVdbe(pParse);
+  if( v==0 ) goto insert_cleanup;
+  if( pParse->nested==0 ) sqlite4VdbeCountChanges(v);
+  sqlite4BeginWriteOperation(pParse, pSelect || pTrigger, iDb);
+
+  /* If this is an AUTOINCREMENT table, look up the sequence number in the
+  ** sqlite_sequence table and store it in memory cell regAutoinc.
+  */
+  regAutoinc = autoIncBegin(pParse, iDb, pTab);
+
+  /* Figure out how many columns of data are supplied.  If the data
+  ** is coming from a SELECT statement, then generate a co-routine that
+  ** produces a single row of the SELECT on each invocation.  The
+  ** co-routine is the common header to the 3rd and 4th templates.
+  */
+  if( pSelect ){
+    /* Data is coming from a SELECT.  Generate code to implement that SELECT
+    ** as a co-routine.  The code is common to both the 3rd and 4th
+    ** templates:
+    **
+    **         EOF <- 0
+    **         X <- A
+    **         goto B
+    **      A: setup for the SELECT
+    **         loop over the tables in the SELECT
+    **           load value into register R..R+n
+    **           yield X
+    **         end loop
+    **         cleanup after the SELECT
+    **         EOF <- 1
+    **         yield X
+    **         halt-error
+    **
+    ** On each invocation of the co-routine, it puts a single row of the
+    ** SELECT result into registers dest.iMem...dest.iMem+dest.nMem-1.
+    ** (These output registers are allocated by sqlite4Select().)  When
+    ** the SELECT completes, it sets the EOF flag stored in regEof.
+    */
+    int rc, j1;
+
+    regEof = ++pParse->nMem;
+    sqlite4VdbeAddOp2(v, OP_Integer, 0, regEof);      /* EOF <- 0 */
+    VdbeComment((v, "SELECT eof flag"));
+    sqlite4SelectDestInit(&dest, SRT_Coroutine, ++pParse->nMem);
+    addrSelect = sqlite4VdbeCurrentAddr(v)+2;
+    sqlite4VdbeAddOp2(v, OP_Integer, addrSelect-1, dest.iParm);
+    j1 = sqlite4VdbeAddOp2(v, OP_Goto, 0, 0);
+    VdbeComment((v, "Jump over SELECT coroutine"));
+
+    /* Resolve the expressions in the SELECT statement and execute it. */
+    rc = sqlite4Select(pParse, pSelect, &dest);
+    assert( pParse->nErr==0 || rc );
+    if( rc || NEVER(pParse->nErr) || db->mallocFailed ){
+      goto insert_cleanup;
+    }
+    sqlite4VdbeAddOp2(v, OP_Integer, 1, regEof);         /* EOF <- 1 */
+    sqlite4VdbeAddOp1(v, OP_Yield, dest.iParm);   /* yield X */
+    sqlite4VdbeAddOp2(v, OP_Halt, SQLITE4_INTERNAL, OE_Abort);
+    VdbeComment((v, "End of SELECT coroutine"));
+    sqlite4VdbeJumpHere(v, j1);                          /* label B: */
+
+    regFromSelect = dest.iMem;
+    assert( pSelect->pEList );
+    nColumn = pSelect->pEList->nExpr;
+    assert( dest.nMem==nColumn );
+
+    /* Set useTempTable to TRUE if the result of the SELECT statement
+    ** should be written into a temporary table (template 4).  Set to
+    ** FALSE if each* row of the SELECT can be written directly into
+    ** the destination table (template 3).
+    **
+    ** A temp table must be used if the table being updated is also one
+    ** of the tables being read by the SELECT statement.  Also use a 
+    ** temp table in the case of row triggers.
+    */
+    if( pTrigger 
+     || IsKvstore(pTab) 
+     || readsTable(pParse, addrSelect, iDb, pTab) 
+    ){
+      useTempTable = 1;
+    }
+
+    if( useTempTable ){
+      /* Invoke the coroutine to extract information from the SELECT
+      ** and add it to a transient table srcTab.  The code generated
+      ** here is from the 4th template:
+      **
+      **      B: open temp table
+      **      L: yield X
+      **         if EOF goto M
+      **         insert row from R..R+n into temp table
+      **         goto L
+      **      M: ...
+      */
+      int regRec;          /* Register to hold packed record */
+      int regTempRowid;    /* Register to hold temp table ROWID */
+      int addrTop;         /* Label "L" */
+      int addrIf;          /* Address of jump to M */
+
+      srcTab = pParse->nTab++;
+      regRec = sqlite4GetTempReg(pParse);
+      regTempRowid = sqlite4GetTempReg(pParse);
+      sqlite4VdbeAddOp2(v, OP_OpenEphemeral, srcTab, nColumn);
+      addrTop = sqlite4VdbeAddOp1(v, OP_Yield, dest.iParm);
+      addrIf = sqlite4VdbeAddOp1(v, OP_If, regEof);
+      sqlite4VdbeAddOp3(v, OP_MakeRecord, regFromSelect, nColumn, regRec);
+      sqlite4VdbeAddOp2(v, OP_NewRowid, srcTab, regTempRowid);
+      sqlite4VdbeAddOp3(v, OP_Insert, srcTab, regRec, regTempRowid);
+      sqlite4VdbeAddOp2(v, OP_Goto, 0, addrTop);
+      sqlite4VdbeJumpHere(v, addrIf);
+      sqlite4ReleaseTempReg(pParse, regRec);
+      sqlite4ReleaseTempReg(pParse, regTempRowid);
+    }
+  }else{
+    /* This is the case if the data for the INSERT is coming from a VALUES
+    ** (or DEFAULT VALUES) clause. Resolve all references in the VALUES(...)
+    ** expressions.  */ 
+    NameContext sNC;
+    memset(&sNC, 0, sizeof(sNC));
+    sNC.pParse = pParse;
+    srcTab = -1;
+    assert( useTempTable==0 );
+    nColumn = pList ? pList->nExpr : 0;
+    for(i=0; i<nColumn; i++){
+      if( sqlite4ResolveExprNames(&sNC, pList->a[i].pExpr) ){
+        goto insert_cleanup;
+      }
+    }
+  }
+
+  /* Make sure the number of columns in the source data matches the number
+  ** of columns to be inserted into the table.
+  */
+  if( IsVirtual(pTab) ){
+    for(i=0; i<pTab->nCol; i++){
+      nHidden += (IsHiddenColumn(&pTab->aCol[i]) ? 1 : 0);
+    }
+  }
+  if( pColumn==0 && nColumn && nColumn!=(pTab->nCol-nHidden) ){
+    sqlite4ErrorMsg(pParse,
+       "table %S has %d columns but %d values were supplied",
+       pTabList, 0, pTab->nCol-nHidden, nColumn);
+    goto insert_cleanup;
+  }
+  if( pColumn!=0 && nColumn!=pColumn->nId ){
+    sqlite4ErrorMsg(pParse, "%d values for %d columns", nColumn, pColumn->nId);
+    goto insert_cleanup;
+  }
+
+  /* If the INSERT statement included an IDLIST term, then make sure
+  ** all elements of the IDLIST really are columns of the table. Set
+  ** the pColumn->a[iCol].idx variables to indicate which column of the
+  ** table each IDLIST element corresponds to.
+  */
+  if( pColumn ){
+    for(i=0; i<pColumn->nId; i++){
+      pColumn->a[i].idx = -1;
+    }
+    for(i=0; i<pColumn->nId; i++){
+      char *zTest = pColumn->a[i].zName;
+      for(j=0; j<pTab->nCol; j++){
+        if( sqlite4_stricmp(zTest, pTab->aCol[j].zName)==0 ){
+          pColumn->a[i].idx = j;
+          break;
+        }
+      }
+      if( j==pTab->nCol ){
+        sqlite4ErrorMsg(pParse, "table %S has no column named %s",
+              pTabList, 0, pColumn->a[i].zName);
+        pParse->checkSchema = 1;
+        goto insert_cleanup;
+      }
+    }
+  }
+
+  /* If this is not a view, open a write cursor on each index. Allocate
+  ** a contiguous array of (nIdx+1) registers, where nIdx is the total
+  ** number of indexes (including the PRIMARY KEY index). 
+  **
+  **   Register aRegIdx[0]:         The PRIMARY KEY index key
+  **   Register aRegIdx[1..nIdx-1]: Keys for other table indexes 
+  **   Register aRegIdx[nIdx]:      Data record for table row.
+  */
+  if( !isView ){
+    int nIdx;
+
+    baseCur = pParse->nTab;
+    nIdx = sqlite4OpenAllIndexes(pParse, pTab, baseCur, OP_OpenWrite);
+    aRegIdx = sqlite4DbMallocRaw(db, sizeof(int)*(nIdx+1));
+    if( aRegIdx==0 ){
+      goto insert_cleanup;
+    }
+    for(i=0; i<nIdx; i++){
+      aRegIdx[i] = ++pParse->nMem;  /* Register in which to store key */
+      pParse->nMem++;               /* Extra register for data */
+    }
+  }
+
+  /* This is the top of the main insertion loop */
+  if( useTempTable ){
+    /* This block codes the top of loop only.  The complete loop is the
+    ** following pseudocode (template 4):
+    **
+    **         rewind temp table
+    **      C: loop over rows of intermediate table
+    **           transfer values form intermediate table into <table>
+    **         end loop
+    **      D: ...
+    */
+    addrInsTop = sqlite4VdbeAddOp1(v, OP_Rewind, srcTab);
+    addrCont = sqlite4VdbeCurrentAddr(v);
+  }else if( pSelect ){
+    /* This block codes the top of loop only.  The complete loop is the
+    ** following pseudocode (template 3):
+    **
+    **      C: yield X
+    **         if EOF goto D
+    **         insert the select result into <table> from R..R+n
+    **         goto C
+    **      D: ...
+    */
+    addrCont = sqlite4VdbeAddOp1(v, OP_Yield, dest.iParm);
+    addrInsTop = sqlite4VdbeAddOp1(v, OP_If, regEof);
+  }
+
+  /* Allocate an array of registers in which to assemble the values for the
+  ** new row. If the table has an explicit primary key, we need one register
+  ** for each table column. If the table uses an implicit primary key, then
+  ** nCol+1 registers are required.  */
+  regRowid = ++pParse->nMem;
+  regContent = pParse->nMem+1;
+  pParse->nMem += pTab->nCol;
+
+  if( IsVirtual(pTab) ){
+    /* TODO: Fix this */
+    regContent++;
+    regRowid++;
+    pParse->nMem++;
+  }
+
+  endOfLoop = sqlite4VdbeMakeLabel(v);
+
+  for(i=0; i<pTab->nCol; i++){
+    int regDest = regContent+i;
+    j = i;
+    if( pColumn ){
+      for(j=0; j<pColumn->nId; j++){
+        if( pColumn->a[j].idx==i ) break;
+      }
+    }
+
+    if( nColumn==0 || (pColumn && j>=pColumn->nId) ){
+      sqlite4ExprCode(pParse, pTab->aCol[i].pDflt, regDest);
+    }else if( useTempTable ){
+      sqlite4VdbeAddOp3(v, OP_Column, srcTab, j, regDest);
+    }else if( pSelect ){
+      sqlite4VdbeAddOp2(v, OP_SCopy, regFromSelect+j, regDest);
+    }else{
+      assert( pSelect==0 ); /* Otherwise useTempTable is true */
+      sqlite4ExprCodeAndCache(pParse, pList->a[j].pExpr, regDest);
+    }
+  }
+
+  if( !isView ){
+    sqlite4VdbeAddOp2(v, OP_Affinity, regContent, pTab->nCol);
+    sqlite4TableAffinityStr(v, pTab);
+  }
+
+  /* Fire BEFORE or INSTEAD OF triggers */
+  if( pTrigger ){
+    sqlite4VdbeAddOp2(v, OP_Integer, -1, regRowid);
+    VdbeComment((v, "new.rowid value for BEFORE triggers"));
+    sqlite4CodeRowTrigger(
+        pParse, pTrigger, TK_INSERT, 0, TRIGGER_BEFORE, 
+        pTab, (regRowid - pTab->nCol - 1), onError, endOfLoop
+    );
+  }
+
+  if( iIntPKCol>=0 ){
+    int regDest = regContent+iIntPKCol;
+    int a1;
+    a1 = sqlite4VdbeAddOp1(v, OP_NotNull, regDest);
+    sqlite4VdbeAddOp3(v, OP_NewRowid, baseCur, regDest, regAutoinc);
+    sqlite4VdbeJumpHere(v, a1);
+    autoIncStep(pParse, regAutoinc, regDest);
+  }
+
+  if( bImplicitPK ){
+    assert( !isView );
+    sqlite4VdbeAddOp2(v, OP_NewRowid, baseCur+iPk, regRowid);
+  }
+
+  if( !isView ){
+#ifndef SQLITE4_OMIT_VIRTUALTABLE
+    if( IsVirtual(pTab) ){
+      const char *pVTab = (const char *)sqlite4GetVTable(db, pTab);
+      sqlite4VtabMakeWritable(pParse, pTab);
+      sqlite4VdbeAddOp4(v, OP_VUpdate, 1, pTab->nCol+2, regIns, pVTab, P4_VTAB);
+      sqlite4VdbeChangeP5(v, onError==OE_Default ? OE_Abort : onError);
+      sqlite4MayAbort(pParse);
+    }else
+#endif
+    {
+      /* Generate code to check constraints and generate index keys and
+      ** do the insertion.  */
+      int isReplace;    /* Set to true if constraints may cause a replace */
+      sqlite4GenerateConstraintChecks(pParse, pTab, baseCur, 
+          regContent, aRegIdx, 0, 0, onError, endOfLoop, &isReplace
+      );
+      sqlite4FkCheck(pParse, pTab, 0, regContent);
+      sqlite4CompleteInsertion(pParse, pTab, baseCur, 
+          regContent, aRegIdx, 0, appendFlag, isReplace==0
+      );
+    }
+  }
+
+  /* Code AFTER triggers */
+  sqlite4CodeRowTrigger(
+      pParse, pTrigger, TK_INSERT, 0, TRIGGER_AFTER, 
+      pTab, regRowid - pTab->nCol - 1, onError, endOfLoop
+  );
+
+  /* The bottom of the main insertion loop, if the data source
+  ** is a SELECT statement.
+  */
+  sqlite4VdbeResolveLabel(v, endOfLoop);
+  if( useTempTable ){
+    sqlite4VdbeAddOp2(v, OP_Next, srcTab, addrCont);
+    sqlite4VdbeJumpHere(v, addrInsTop);
+    sqlite4VdbeAddOp1(v, OP_Close, srcTab);
+  }else if( pSelect ){
+    sqlite4VdbeAddOp2(v, OP_Goto, 0, addrCont);
+    sqlite4VdbeJumpHere(v, addrInsTop);
+  }
+
+  if( !IsVirtual(pTab) && !isView ){
+    /* Close all tables opened */
+    for(idx=0, pIdx=pTab->pIndex; pIdx; pIdx=pIdx->pNext, idx++){
+      sqlite4VdbeAddOp1(v, OP_Close, idx+baseCur);
+    }
+  }
+
+  /* Update the sqlite_sequence table by storing the content of the
+  ** maximum rowid counter values recorded while inserting into
+  ** autoincrement tables.
+  */
+  if( pParse->nested==0 && pParse->pTriggerTab==0 ){
+    sqlite4AutoincrementEnd(pParse);
+  }
+
+insert_cleanup:
+  sqlite4SrcListDelete(db, pTabList);
+  sqlite4ExprListDelete(db, pList);
+  sqlite4SelectDelete(db, pSelect);
+  sqlite4IdListDelete(db, pColumn);
+  sqlite4DbFree(db, aRegIdx);
+}
+
+/* Make sure "isView" and other macros defined above are undefined. Otherwise
+** thely may interfere with compilation of other functions in this file
+** (or in another file, if this file becomes part of the amalgamation).  */
+#ifdef isView
+ #undef isView
+#endif
+#ifdef pTrigger
+ #undef pTrigger
+#endif
+#ifdef tmask
+ #undef tmask
+#endif
+
+/*
+** Return the name of the iCol'th column in index pIdx.
+*/
+const char *indexColumnName(Index *pIdx, int iCol){
+  int iTbl = pIdx->aiColumn[iCol];
+  assert( iTbl>=-1 && iTbl<pIdx->pTable->nCol );
+  if( iTbl<0 ){
+    assert( pIdx->eIndexType==SQLITE4_INDEX_PRIMARYKEY && pIdx->nColumn==1 );
+    return "rowid";
+  }
+  return pIdx->pTable->aCol[iTbl].zName;
+}
+
+static void generateNotNullChecks(
+  Parse *pParse,                  /* Parse context */
+  Table *pTab,                    /* Table to generate checks for */
+  int regContent,                 /* Index of the range of input registers */
+  int overrideError,              /* Override default OE_* with this */
+  int ignoreDest                  /* Jump to this lable if OE_Ignore */
+){
+  Vdbe *v = pParse->pVdbe;
+  int i;
+
+  for(i=0; i<pTab->nCol; i++){
+    int onError = pTab->aCol[i].notNull;
+    if( onError ){
+      if( overrideError!=OE_Default ){
+        onError = overrideError;
+      }else if( onError==OE_Default ){
+        onError = OE_Abort;
+      }
+      if( onError==OE_Replace && pTab->aCol[i].pDflt==0 ){
+        onError = OE_Abort;
+      }
+
+      switch( onError ){
+        case OE_Abort:
+          sqlite4MayAbort(pParse);
+        case OE_Rollback:
+        case OE_Fail: {
+          char *zMsg = sqlite4MPrintf(pParse->db, "%s.%s may not be NULL",
+              pTab->zName, pTab->aCol[i].zName
+          );
+          sqlite4VdbeAddOp4(v, OP_HaltIfNull, 
+              SQLITE4_CONSTRAINT, onError, regContent+i, zMsg, P4_DYNAMIC
+          );
+          break;
+        }
+
+        case OE_Ignore:
+          sqlite4VdbeAddOp2(v, OP_IsNull, regContent+i, ignoreDest);
+          break;
+
+        default: {
+          int j1 = sqlite4VdbeAddOp1(v, OP_NotNull, regContent+i);
+          sqlite4ExprCode(pParse, pTab->aCol[i].pDflt, regContent+i);
+          sqlite4VdbeJumpHere(v, j1);
+          assert( onError==OE_Replace );
+          break;
+        }
+      }
+    }
+  }
+}
+
+#ifndef SQLITE4_OMIT_CHECK
+static void generateCheckChecks(
+  Parse *pParse,                  /* Parse context */
+  Table *pTab,                    /* Table to generate checks for */
+  int regContent,                 /* Index of the range of input registers */
+  int overrideError,              /* Override default OE_* with this */
+  int ignoreDest                  /* Jump to this lable if OE_Ignore */
+){
+  Vdbe *v = pParse->pVdbe;
+
+  if( pTab->pCheck && (pParse->db->flags & SQLITE4_IgnoreChecks)==0 ){
+    int onError;
+    int allOk = sqlite4VdbeMakeLabel(v);
+    pParse->ckBase = regContent;
+    sqlite4ExprIfTrue(pParse, pTab->pCheck, allOk, SQLITE4_JUMPIFNULL);
+    onError = overrideError!=OE_Default ? overrideError : OE_Abort;
+    if( onError==OE_Ignore ){
+      sqlite4VdbeAddOp2(v, OP_Goto, 0, ignoreDest);
+    }else{
+      if( onError==OE_Replace ) onError = OE_Abort; /* IMP: R-15569-63625 */
+      sqlite4HaltConstraint(pParse, onError, 0, 0);
+    }
+    sqlite4VdbeResolveLabel(v, allOk);
+  }
+}
+#else /* !defined(SQLITE4_OMIT_CHECK) */
+# define generateCheckChecks(a,b,c,d,e)
+#endif
+
+/*
+** Locate the primary key index for a table.
+*/
+Index *sqlite4FindPrimaryKey(
+  Table *pTab,                    /* Table to locate primary key for */
+  int *piPk                       /* OUT: Index of PRIMARY KEY */
+){
+  Index *p;
+  int iPk = 0;
+  for(p=pTab->pIndex; p && p->eIndexType!=SQLITE4_INDEX_PRIMARYKEY; p=p->pNext){
+    iPk++;
+  }
+  if( piPk ) *piPk = iPk;
+  return p;
+}
+
+/*
+** Index pIdx is a UNIQUE index. This function returns a pointer to a buffer
+** containing an error message to tell the user that the UNIQUE constraint
+** has failed.
+**
+** The returned buffer should be freed by the caller using sqlite4DbFree().
+*/
+static char *notUniqueMessage(
+  Parse *pParse,                  /* Parse context */
+  Index *pIdx                     /* Index to generate error message for */
+){
+  const int nCol = pIdx->nColumn; /* Number of columns indexed by pIdx */
+  StrAccum errMsg;                /* Buffer to build error message within */
+  int iCol;                       /* Used to iterate through indexed columns */
+
+  sqlite4StrAccumInit(&errMsg, 0, 0, 200);
+  errMsg.db = pParse->db;
+  errMsg.pEnv = errMsg.db->pEnv;
+  if( pIdx->eIndexType==SQLITE4_INDEX_PRIMARYKEY ){
+    sqlite4StrAccumAppend(&errMsg, "PRIMARY KEY must be unique", -1);
+  }else{
+    sqlite4StrAccumAppend(&errMsg, (nCol>1 ? "columns " : "column "), -1);
+    for(iCol=0; iCol<pIdx->nColumn; iCol++){
+      const char *zCol = indexColumnName(pIdx, iCol);
+      sqlite4StrAccumAppend(&errMsg, (iCol==0 ? "" : ", "), -1);
+      sqlite4StrAccumAppend(&errMsg, zCol, -1);
+    }
+    sqlite4StrAccumAppend(&errMsg, (nCol>1 ? " are" : " is"), -1);
+    sqlite4StrAccumAppend(&errMsg, " not unique", -1);
+  }
+  return sqlite4StrAccumFinish(&errMsg);
+}
+
+/*
+** This function generates code used as part of both INSERT and UPDATE
+** statements. The generated code performs two tasks:
+**
+**   1. Checks all NOT NULL, CHECK and UNIQUE database constraints, 
+**      including the implicit NOT NULL and UNIQUE constraints imposed
+**      by the PRIMARY KEY definition.
+**
+**   2. Generates serialized index keys (using OP_MakeKey) for the caller
+**      to store in database indexes. This function does not encode the
+**      actual data record, just the index keys.
+**
+** Both INSERT and UPDATE use this function in concert with the
+** sqlite4CompleteInsertion(). This function does as described above, and
+** then CompleteInsertion() generates code to serialize the data record 
+** and do the actual inserts into the database.
+**
+** regContent:
+**   The first in an array of registers that contain the column values
+**   for the new row. Register regContent contains the value for the 
+**   left-most table column, (regContent+1) contains the value for the next 
+**   column, and so on. All entries in this array have had any required
+**   affinity transformations applied already. All zero-blobs have been 
+**   expanded.
+**
+**   If the table has an implicit primary key and aRegIdx[0] is not 0 (see
+**   below), register (regContent-1) is also valid. It contains the new 
+**   implicit integer PRIMARY KEY value.
+**
+** aRegIdx:
+**   Array sized so that there is one entry for each index (including the
+**   PK index) attached to the database table. Entries are in the same order
+**   as the linked list of Index structures attached to the table. 
+**
+**   If an array entry is non-zero, it contains the register that the 
+**   corresponding index key should be written to. If an entry is zero, then
+**   the corresponding index key is not required by the caller. In this case
+**   any UNIQUE constraint enforced by the index does not need to be checked.
+**
+** 
+**
+** Generate code to do constraint checks prior to an INSERT or an UPDATE.
+**
+** The input is a range of consecutive registers as follows:
+**
+**    1.  The rowid of the row after the update.
+**
+**    2.  The data in the first column of the entry after the update.
+**
+**    i.  Data from middle columns...
+**
+**    N.  The data in the last column of the entry after the update.
+**
+** The regRowid parameter is the index of the register containing (1).
+**
+** If isUpdate is true and rowidChng is non-zero, then rowidChng contains
+** the address of a register containing the rowid before the update takes
+** place. isUpdate is true for UPDATEs and false for INSERTs. If isUpdate
+** is false, indicating an INSERT statement, then a non-zero rowidChng 
+** indicates that the rowid was explicitly specified as part of the
+** INSERT statement. If rowidChng is false, it means that  the rowid is
+** computed automatically in an insert or that the rowid value is not 
+** modified by an update.
+**
+** The code generated by this routine store new index entries into
+** registers identified by aRegIdx[].  No index entry is created for
+** indices where aRegIdx[i]==0.  The order of indices in aRegIdx[] is
+** the same as the order of indices on the linked list of indices
+** attached to the table.
+**
+** This routine also generates code to check constraints.  NOT NULL,
+** CHECK, and UNIQUE constraints are all checked.  If a constraint fails,
+** then the appropriate action is performed.  There are five possible
+** actions: ROLLBACK, ABORT, FAIL, REPLACE, and IGNORE.
+**
+**  Constraint type  Action       What Happens
+**  ---------------  ----------   ----------------------------------------
+**  any              ROLLBACK     The current transaction is rolled back and
+**                                sqlite4_exec() returns immediately with a
+**                                return code of SQLITE4_CONSTRAINT.
+**
+**  any              ABORT        Back out changes from the current command
+**                                only (do not do a complete rollback) then
+**                                cause sqlite4_exec() to return immediately
+**                                with SQLITE4_CONSTRAINT.
+**
+**  any              FAIL         Sqlite3_exec() returns immediately with a
+**                                return code of SQLITE4_CONSTRAINT.  The
+**                                transaction is not rolled back and any
+**                                prior changes are retained.
+**
+**  any              IGNORE       The record number and data is popped from
+**                                the stack and there is an immediate jump
+**                                to label ignoreDest.
+**
+**  NOT NULL         REPLACE      The NULL value is replace by the default
+**                                value for that column.  If the default value
+**                                is NULL, the action is the same as ABORT.
+**
+**  UNIQUE           REPLACE      The other row that conflicts with the row
+**                                being inserted is removed.
+**
+**  CHECK            REPLACE      Illegal.  The results in an exception.
+**
+** Which action to take is determined by the overrideError parameter.
+** Or if overrideError==OE_Default, then the pParse->onError parameter
+** is used.  Or if pParse->onError==OE_Default then the onError value
+** for the constraint is used.
+**
+** The calling routine must open a read/write cursor for pTab with
+** cursor number "baseCur".  All indices of pTab must also have open
+** read/write cursors with cursor number baseCur+i for the i-th cursor.
+** Except, if there is no possibility of a REPLACE action then
+** cursors do not need to be open for indices where aRegIdx[i]==0.
+*/
+void sqlite4GenerateConstraintChecks(
+  Parse *pParse,      /* The parser context */
+  Table *pTab,        /* the table into which we are inserting */
+  int baseCur,        /* First in array of cursors for pTab indexes */
+  int regContent,     /* Index of the range of input registers */
+  int *aRegIdx,       /* Register used by each index.  0 for unused indices */
+  int regOldKey,      /* For an update, the original encoded PK */
+  int isUpdate,       /* True for UPDATE, False for INSERT */
+  int overrideError,  /* Override onError to this if not OE_Default */
+  int ignoreDest,     /* Jump to this label on an OE_Ignore resolution */
+  int *pbMayReplace   /* OUT: Set to true if constraint may cause a replace */
+){
+  u8 aPkRoot[10];                 /* Root page number for pPk as a varint */ 
+  int nPkRoot;                    /* Size of aPkRoot in bytes */
+  Index *pPk;                     /* Primary key index for table pTab */
+  int i;              /* loop counter */
+  Vdbe *v;            /* VDBE under constrution */
+  int onError;        /* Conflict resolution strategy */
+  int iCur;           /* Table cursor number */
+  Index *pIdx;         /* Pointer to one of the indices */
+  int seenReplace = 0; /* True if REPLACE is used to resolve INT PK conflict */
+
+  v = sqlite4GetVdbe(pParse);
+  assert( v!=0 );
+  assert( pTab->pSelect==0 );  /* This table is not a VIEW */
+  pPk = sqlite4FindPrimaryKey(pTab, 0);
+  nPkRoot = sqlite4PutVarint64(aPkRoot, pPk->tnum);
+
+  assert( pPk->eIndexType==SQLITE4_INDEX_PRIMARYKEY );
+
+  /* Test all NOT NULL constraints. */
+  generateNotNullChecks(pParse, pTab, regContent, overrideError, ignoreDest);
+
+  /* Test all CHECK constraints */
+  generateCheckChecks(pParse, pTab, regContent, overrideError, ignoreDest);
+
+  /* Test all UNIQUE constraints by creating entries for each UNIQUE
+  ** index and making sure that duplicate entries do not already exist.
+  ** Add the new records to the indices as we go.
+  */
+  for(iCur=0, pIdx=pTab->pIndex; pIdx; pIdx=pIdx->pNext, iCur++){
+    int nTmpReg;                  /* Number of temp registers required */
+    int regTmp;                   /* First temp register allocated */
+    int regPk;                    /* PK of conflicting row (for REPLACE) */
+    int regKey = aRegIdx[iCur];   /* Write encoded index key for pIdx here */
+    int iIdx = baseCur+iCur;      /* Cursor for index pIdx */
+
+    /* If regKey is 0, pIdx will not be updated. */
+    if( regKey==0 ) continue;
+
+    /* Create an index key. Primary key indexes consists of just the primary
+    ** key values. Other indexes consists of the indexed columns followed by
+    ** the primary key values.  */
+    if( pIdx->tnum==KVSTORE_ROOT ){
+      /* If this is the sqlite_kvstore PK index, interpret the value
+      ** specified for column "key" as a blob and use it as the index key. */
+      sqlite4VdbeAddOp2(v, OP_SCopy, regContent, regKey);
+      sqlite4VdbeAddOp1(v, OP_ToBlob, regKey);
+      regPk = regKey;
+    }else{
+      nTmpReg = 1 + pIdx->nColumn + (pIdx==pPk ? 0 : pPk->nColumn);
+      regTmp = sqlite4GetTempRange(pParse, nTmpReg);
+      regPk = regTmp + nTmpReg - 1;
+
+      for(i=0; i<pIdx->nColumn; i++){
+        int idx = pIdx->aiColumn[i];
+        sqlite4VdbeAddOp2(v, OP_SCopy, regContent+idx, regTmp+i);
+      }
+      if( pIdx!=pPk ){
+        for(i=0; i<pPk->nColumn; i++){
+          int idx = pPk->aiColumn[i];
+          sqlite4VdbeAddOp2(v, OP_SCopy, regContent+idx,regTmp+i+pIdx->nColumn);
+        }
+      }
+      sqlite4VdbeAddOp4Int(v, OP_MakeKey, regTmp, nTmpReg-1, regKey, iIdx);
+    }
+    VdbeComment((v, "key for %s", pIdx->zName));
+
+    /* If Index.onError==OE_None, then pIdx is not a UNIQUE or PRIMARY KEY 
+    ** index. In this case there is no need to test the index for uniqueness
+    ** - all that is required is to populate the regKey register. Jump 
+    ** to the next iteration of the loop if this is the case.  */
+    onError = pIdx->onError;
+    if( onError!=OE_None ){
+      int iLabel;
+     
+      /* Figure out what to do if a UNIQUE constraint is encountered. 
+      **
+      ** TODO: If a previous constraint is a REPLACE, why change IGNORE to
+      ** REPLACE and FAIL to ABORT here?  */
+      if( overrideError!=OE_Default ){
+        onError = overrideError;
+      }else if( onError==OE_Default ){
+        onError = OE_Abort;
+      }
+      if( seenReplace ){
+        if( onError==OE_Ignore ) onError = OE_Replace;
+        else if( onError==OE_Fail ) onError = OE_Abort;
+      }
+
+      iLabel = sqlite4VdbeMakeLabel(v);
+      if( pIdx!=pPk ){
+        sqlite4VdbeAddOp3(v, OP_IsNull, regTmp, iLabel, pIdx->nColumn);
+        sqlite4VdbeAddOp4(v, OP_Blob, nPkRoot, regPk, 0,(char*)aPkRoot,nPkRoot);
+      }
+      if( regOldKey && pIdx==pPk ){
+        sqlite4VdbeAddOp3(v, OP_Eq, regOldKey, iLabel, regKey);
+      }
+      sqlite4VdbeAddOp4Int(v, OP_IsUnique, iIdx, iLabel, regKey, regPk);
+      if( regOldKey && pIdx!=pPk ){
+        sqlite4VdbeAddOp3(v, OP_Eq, regOldKey, iLabel, regPk);
+      }
+      
+      switch( onError ){
+        case OE_Rollback:
+        case OE_Abort:
+        case OE_Fail: {
+          char *zErr = notUniqueMessage(pParse, pIdx);
+          sqlite4HaltConstraint(pParse, onError, zErr, 0);
+          sqlite4DbFree(pParse->db, zErr);
+          break;
+        }
+
+        case OE_Ignore: {
+          assert( seenReplace==0 );
+          sqlite4VdbeAddOp2(v, OP_Goto, 0, ignoreDest);
+          break;
+        }
+        default: {
+          Trigger *pTrigger;
+          assert( onError==OE_Replace );
+          sqlite4MultiWrite(pParse);
+          pTrigger = sqlite4TriggersExist(pParse, pTab, TK_DELETE, 0, 0);
+          sqlite4GenerateRowDelete(
+              pParse, pTab, baseCur, regPk, 0, pTrigger, OE_Replace
+          );
+          seenReplace = 1;
+          break;
+        }
+      }
+
+      sqlite4VdbeResolveLabel(v, iLabel);
+    }
+
+    sqlite4ReleaseTempRange(pParse, regTmp, nTmpReg);
+  }
+  
+  if( pbMayReplace ){
+    *pbMayReplace = seenReplace;
+  }
+}
+
+/*
+** This routine generates code to finish the INSERT or UPDATE operation
+** that was started by a prior call to sqlite4GenerateConstraintChecks.
+** The arguments to this routine should be the same as the first six
+** arguments to sqlite4GenerateConstraintChecks.
+**
+** Argument regContent points to the first in a contiguous array of 
+** registers that contain the row content. This function uses OP_MakeRecord
+** to encode them into a record before inserting them into the database.
+**
+** The array aRegIdx[] contains one entry for each index attached to
+** the table, in the same order as the Table.pIndex linked list. If an
+** aRegIdx[] entry is 0, this indicates that the entry in the corresponding
+** index does not need to be modified. Otherwise, it is the number of
+** a register containing the serialized key to insert into the index.
+** aRegIdx[0] (the PRIMARY KEY index key) is never 0.
+*/
+void sqlite4CompleteInsertion(
+  Parse *pParse,      /* The parser context */
+  Table *pTab,        /* the table into which we are inserting */
+  int baseCur,        /* Index of a read/write cursor pointing at pTab */
+  int regContent,     /* First register of content */
+  int *aRegIdx,       /* Register used by each index.  0 for unused indices */
+  int isUpdate,       /* True for UPDATE, False for INSERT */
+  int appendBias,     /* True if this is likely to be an append */
+  int useSeekResult   /* True to set the USESEEKRESULT flag on OP_[Idx]Insert */
+){
+  int i;
+  Vdbe *v;
+  Index *pIdx;
+  u8 pik_flags;
+  int regRec;
+  int regCover;
+
+  v = sqlite4GetVdbe(pParse);
+  assert( v!=0 );
+  assert( pTab->pSelect==0 );  /* This table is not a VIEW */
+
+  if( pParse->nested ){
+    pik_flags = 0;
+  }else{
+    pik_flags = OPFLAG_NCHANGE | (isUpdate?OPFLAG_ISUPDATE:0);
+  }
+
+  /* Generate code to serialize array of registers into a database record. 
+  ** This OP_MakeRecord also serves to apply affinities to the array of
+  ** input registers at regContent. For this reason it must be executed 
+  ** before any MakeRecord instructions used to create covering index
+  ** records.  */
+  regRec = sqlite4GetTempReg(pParse);
+  if( IsKvstore(pTab) ){
+    sqlite4VdbeAddOp2(v, OP_SCopy, regContent+1, regRec);
+    sqlite4VdbeAddOp1(v, OP_ToBlob, regRec);
+  }else{
+    sqlite4VdbeAddOp3(v, OP_MakeRecord, regContent, pTab->nCol, regRec);
+    sqlite4TableAffinityStr(v, pTab);
+    sqlite4ExprCacheAffinityChange(pParse, regContent, pTab->nCol);
+  }
+  regCover = sqlite4GetTempReg(pParse);
+
+  /* Write the entry to each index. */
+  for(i=0, pIdx=pTab->pIndex; pIdx; i++, pIdx=pIdx->pNext){
+    assert( pIdx->eIndexType!=SQLITE4_INDEX_PRIMARYKEY || aRegIdx[i] );
+    if( pIdx->eIndexType==SQLITE4_INDEX_FTS5 ){
+      int iPK;
+      sqlite4FindPrimaryKey(pTab, &iPK);
+      sqlite4Fts5CodeUpdate(pParse, pIdx, 0, aRegIdx[iPK], regContent, 0);
+    }
+    else if( aRegIdx[i] ){
+      int regData = 0;
+      int flags = 0;
+      if( pIdx->eIndexType==SQLITE4_INDEX_PRIMARYKEY ){
+        regData = regRec;
+        flags = pik_flags;
+      }else if( pIdx->nCover>0 ){
+        int nByte = sizeof(int)*pIdx->nCover;
+        int *aiPermute = (int *)sqlite4DbMallocRaw(pParse->db, nByte);
+
+        if( aiPermute ){
+          memcpy(aiPermute, pIdx->aiCover, nByte);
+          sqlite4VdbeAddOp4(
+              v, OP_Permutation, pIdx->nCover, 0, 0,
+              (char*)aiPermute, P4_INTARRAY
+          );
+        }
+        regData = regCover;
+        sqlite4VdbeAddOp3(v, OP_MakeRecord, regContent, pIdx->nCover, regData);
+      }
+      sqlite4VdbeAddOp3(v, OP_Insert, baseCur+i, regData, aRegIdx[i]);
+      sqlite4VdbeChangeP5(v, flags);
+    }
+  }
+}
+
+/*
+** Generate code that will open cursors for a table and for all
+** indices of that table.  The "baseCur" parameter is the cursor number used
+** for the table.  Indices are opened on subsequent cursors.
+**
+** Return the number of indices on the table.
+*/
+int sqlite4OpenAllIndexes(
+  Parse *pParse,   /* Parsing context */
+  Table *pTab,     /* Table to be opened */
+  int baseCur,     /* Cursor number assigned to the table */
+  int op           /* OP_OpenRead or OP_OpenWrite */
+){
+  int i = 0;
+  if( IsVirtual(pTab)==0 ){
+    int iDb;
+    Index *pIdx;
+
+    iDb = sqlite4SchemaToIndex(pParse->db, pTab->pSchema);
+    for(pIdx=pTab->pIndex; pIdx; pIdx=pIdx->pNext){
+      sqlite4OpenIndex(pParse, baseCur+i, iDb, pIdx, op);
+      i++;
+    }
+    if( pParse->nTab<baseCur+i ){
+      pParse->nTab = baseCur+i;
+    }
+  }
+  return i;
+}
+
+void sqlite4CloseAllIndexes(
+  Parse *pParse,
+  Table *pTab,
+  int baseCur
+){
+  int i;
+  Index *pIdx;
+  Vdbe *v;
+
+  assert( pTab->pIndex==0 || IsVirtual(pTab)==0 );
+  assert( pTab->pIndex==0 || IsView(pTab)==0 );
+
+  v = sqlite4GetVdbe(pParse);
+  for(i=0, pIdx=pTab->pIndex; pIdx; pIdx=pIdx->pNext, i++){
+    sqlite4VdbeAddOp1(v, OP_Close, baseCur+i);
+  }
+}
+
+
+#ifdef SQLITE4_TEST
+/*
+** The following global variable is incremented whenever the
+** transfer optimization is used.  This is used for testing
+** purposes only - to make sure the transfer optimization really
+** is happening when it is suppose to.
+*/
+int sqlite4_xferopt_count;
+#endif /* SQLITE4_TEST */

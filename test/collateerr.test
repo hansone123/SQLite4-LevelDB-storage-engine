@@ -1,0 +1,45 @@
+#
+# 2001 September 15
+#
+# The author disclaims copyright to this source code.  In place of
+# a legal notice, here is a blessing:
+#
+#    May you do good and not evil.
+#    May you find forgiveness for yourself and forgive others.
+#    May you share freely, never taking more than you give.
+#
+#***********************************************************************
+# This file implements regression tests for SQLite library.  The
+# focus of this test is errors returned by collation sequence comparison
+# functions.
+
+set testdir [file dirname $argv0]
+source $testdir/tester.tcl
+set ::testprefix collateerr
+
+db collate xxx xxx_collate xxx_mkkey
+
+proc xxx_collate {a b} { return [string compare $a $b] }
+proc xxx_mkkey {a}     { return $a }
+
+do_execsql_test 1.0 {
+  CREATE TABLE t1(a COLLATE xxx, b COLLATE xxx);
+  INSERT INTO t1 VALUES('abc', 'def');
+  INSERT INTO t1 VALUES('jkl', 'ghi');
+}
+
+foreach {tn sql res} {
+  1 { SELECT max(a, b) FROM t1 }   {def jkl} 
+  2 { SELECT max(a) FROM t1 }      {jkl} 
+  3 { SELECT nullif(a,b) FROM t1 } {abc jkl} 
+  4 { SELECT a==b FROM t1 }        {0 0}
+} {
+
+  proc xxx_collate {a b} { return [string compare $a $b] }
+  do_execsql_test 1.$tn.1 $sql $res
+   
+  proc xxx_collate {a b} {error "no good"}
+  do_test 1.$tn.2 { catchsql $sql } {1 {SQL logic error or missing database}}
+}
+
+finish_test

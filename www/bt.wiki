@@ -1,0 +1,1301 @@
+
+
+
+<title>BT Design Overview</title>
+<nowiki>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div id=start_of_toc></div>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#overview style=text-decoration:none>1. Overview</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#b-tree_database_notes style=text-decoration:none>2. B-Tree Database Notes</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#pager_level_changes style=text-decoration:none>2.1. Pager Level changes</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#wal_file_format_changes style=text-decoration:none>2.1.1. WAL File Format Changes</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#wal_file_wrapping style=text-decoration:none>2.1.1.1. WAL File Wrapping</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#wal_file_headers_and_recovery style=text-decoration:none>2.1.1.2. WAL File Headers and Recovery</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#shm_file_format_changes style=text-decoration:none>2.1.2. SHM File Format Changes</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#shm-file_header style=text-decoration:none>2.1.2.3. Shm-file Header</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#shm-file_hash_tables style=text-decoration:none>2.1.2.4. Shm-File Hash Tables</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#changes_to_locking style=text-decoration:none>2.1.3. Changes to Locking</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#read-only_clients_and_halted_databases style=text-decoration:none>2.1.3.5. Read-only Clients and Halted Databases</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#read-only_clients_and_live_databases style=text-decoration:none>2.1.3.6. Read-only Clients and Live Databases</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#b-tree_level_changes style=text-decoration:none>2.2. B-Tree Level Changes</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#free_page_management style=text-decoration:none>2.2.1. Free Page Management</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#large_records style=text-decoration:none>2.2.2. Large Records</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#b-tree_page_format style=text-decoration:none>2.2.3. B-Tree Page Format</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#page_formats style=text-decoration:none>2.2.3.7. Page Formats</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#cell_formats style=text-decoration:none>2.2.3.8. Cell Formats</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#merge-tree_database_notes style=text-decoration:none>3. Merge-Tree Database Notes</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#merge-tree_format style=text-decoration:none>3.1. Merge-Tree Format</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#in-memory_tree style=text-decoration:none>3.2. In-Memory Tree</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#use_of_a_background_thread_or_process style=text-decoration:none>3.3. Use of a Background Thread or Process</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#design_summary style=text-decoration:none>4. Design Summary</a><br>
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href=#locking style=text-decoration:none>4.1. Locking</a><br>
+
+<div id=end_of_toc></div>
+
+<h1 id=overview>1. Overview</h1>
+
+<p>
+  This is an attempt to extend a b-tree design similar to SQLite3 wal 
+  mode with the following objectives:
+
+<ol>
+  <li><p>To support fast "blind writes", similar to LSM or FTS4. The user
+  should be able to select on a per-write basis whether a blind write or a
+  traditional b-tree write is used to update the database. In SQLite4, this
+  might be used as follows:
+    <ul>
+      <li><p>The primary key index of tables could be written using b-tree
+      writes while an FTS (or other) index attached to the same table uses
+      blind writes.
+
+      <li><p>A database used by an indexeddb implementation might write all
+      data using blind writes.
+    </ul>
+
+  <li><p>To better support deferring work involved in writing to the database
+  to a background thread or process. 
+
+  <p>In SQLite, it is possible to do this by turning off auto-checkpoint
+  and using a background thread or process to run periodic checkpoints
+  on a database. The main problem with this is that if the database is under
+  load the WAL file may grow indefinitely. Addressing this would not make 
+  writer threads as responsive as they can be with LSM or LevelDB, but would 
+  improve things without sacrificing DAM optimal seek queries.
+
+  <li><p>To support read-only clients. A read-only client may not create files
+  or shared-memory regions, write to the same, or take any EXCLUSIVE locks.
+</ol>
+
+<h1 id=b-tree_database_notes>2. B-Tree Database Notes</h1>
+
+<p>
+  The b-tree database is similar to SQLite in WAL mode. In the sense that:
+
+<ul>
+  <li><p> All data is stored in a b-tree structure with fixed size pages.
+       Large records are stored using overflow pages.
+
+  <li><p> A physical log file similar to SQLite's WAL file is used. This
+       provides single-writer/multiple-reader MVCC.
+
+  <li><p> A temporary rollback log file to support nested transactions.
+
+  <li><p> A checkpoint operation copies data from the physical log file into
+       the database file itself. Checkpoints may proceed concurrently with
+       a single writer and any number of readers.
+</ul>
+
+<p>
+  The notes below are divided into two sections - the first describing a
+  WAL pager module that supports the circular log file, and the second 
+  describing the b-tree created on top of it.
+
+<h2 id=pager_level_changes>2.1. Pager Level changes</h2>
+
+<p>
+  To support the circular log concept, the format of the wal and shm files 
+  are slightly different. Described below.
+
+<h3 id=wal_file_format_changes>2.1.1. WAL File Format Changes</h3>
+
+<p> Two header blocks at the start of the file. Each occupying an entire
+    disk sector.
+
+<p> The remainder of the file divided into "frames", just as the SQLite WAL
+file is. Most valid frames contain new versions of database pages, just
+as in SQLite. However, a frame may also be a "pointer frame" - a frame that
+exists solely to indicate the location of the next frame in the log.
+
+<h4 id=wal_file_wrapping>2.1.1.1. WAL File Wrapping</h4>
+
+<p> Logically, the log always consists of three regions (contiguous runs of
+    frames within the physical file), region A, region B and region C. When
+    the contents of a log are recovered, regions are read in that order (A,
+    then B, then C). New frames are always appended to the end of region C.
+
+<pre>
+    |---B---|..|---A---||---C---|......
+</pre>
+
+<p> Initially, the log file is empty. All three regions are zero frames in 
+size. All three are located at the very start of the log file. As frames are
+appended to the log, region C grows, giving:
+
+<pre>
+    1)     |---------------C---------------|....
+</pre>
+
+<p> If a checkpoint is performed at this point, it reduces the size of region
+    C, to (say):
+
+<pre>
+    2)     ....................|-----C-----|....
+</pre>
+
+<p> Once there is sufficient space between the start of the log file and the
+    start of region C, region C is renamed to region A and a new region C
+    created at the start of the file:
+
+<pre>
+    3)     |---C---|...........|-----A-----|....
+</pre>
+
+<p> Usually, or at least hopefully, checkpoints will reduce the size of 
+region A to zero before C grows large enough to meet the start of A,
+leaving the system back in state (1). But, if it doesn't, region C is 
+renamed B and a new C begins immediately following A:
+
+<pre>
+    4)     |--------B---------||-----A-----||---C---|...
+</pre>
+
+<p> Once in this state new frames are appended to region C until all data
+in both regions A and B has been checkpointed. At which point the system
+is back in state (2) above. Before it gets there, the system topology may
+pass through state 5:
+
+<pre>
+    5)     .....|------B------|.............|-----C-----|...
+</pre>
+
+<h4 id=wal_file_headers_and_recovery>2.1.1.2. WAL File Headers and Recovery</h4>
+
+<p>The WAL file begins with two header blocks - headers 1 and 2. Each 
+block occupying an entire disk sector. As well as other fields, a header 
+block contains:
+
+<ul>
+  <li> A 64-bit version number. The version number is incremented 
+       each time a new header block is written to the WAL file.
+  <li> A checksum. Based on the contents of the header block, including 
+       the version number.
+</ul>
+
+<p>During recovery, both header blocks are read from the database. The
+newest block with a valid checksum is used.
+
+<p>The key piece of information in a WAL file header is the first frame
+to read during recovery. In an SQLite 3 WAL file, this is always frame 
+zero - the frame that immediately follows the header. In this version,
+it may be any frame in the file.
+
+<p>When a WAL file is first written (state 1 above), header 1 is written and
+the recovery frame pointer set to 0 (first frame in the file). In this case,
+the header is written by the writer. This is the only time a WAL header
+is updated by a process holding the WRITER lock. All subsequent header 
+updates are performed while holding the CHECKPOINTER lock.
+
+<p>After a checkpoint is performed, a checkpointer may write a new header
+into the WAL file, indicating a new "first frame" that can be used when
+recovering the log file. Once this new header has been synced, it is safe
+to overwrite any parts of the log that occur logically before the new "first
+frame". The new header is always written to the slot not occupied by the
+previous header, so that if a failure occurs while writing at least one header 
+is always valid. If the database is in synchronous=NORMAL or FULL mode, the WAL
+file is synced immediately after the header is written. Following that, the
+*-shm file is updated so that subsequent writers can see that the WAL file
+header has been updated. A writer process may then use this information to
+determine whether or not to wrap the log file.
+
+<h3 id=shm_file_format_changes>2.1.2. SHM File Format Changes</h3>
+
+<h4 id=shm-file_header>2.1.2.3. Shm-file Header</h4>
+
+<p>In SQLite, the shm-file header consists of three things:
+
+<ul>
+  <li> The WalIndexHdr structure (updated by writers).
+  <li> The nBackfill field (updated by checkpointers).
+  <li> The array of read-lock slots (updated by readers).
+</ul>
+
+<p>There are two identical copies of the WalIndexHdr. Both contain a checksum.
+When a writer wishes to update the WalIndexHdr, it updates the first copy,
+invokes the xShmBarrier() routine, then updates the second. 
+
+<p>When a reader reads the WalIndexHdr, it reads the first copy, invokes
+xShmBarrier(), then reads the second. If both operations return identical data
+and the checksum matches then the read is considered successful. Unsuccessful
+reads are retried for a while, then an attempt is made to determine if there is
+an active writer process. If there is not, recovery is run on the WAL file. If
+there is, SQLITE_PROTOCOL is returned to the user.
+
+There are two minor problems with this:
+
+<ul>
+  <li><p> Even with high retry counts, SQLITE_PROTOCOL has very occasionally
+          been observed in the wild.
+  <li><p> Requiring that recovery be run if a writer process fails while
+          updating the WalIndexHdr causes problems for read-only connections.  
+</ul>
+
+<p>The procedure for reading and writing the WalIndexHdr copies can be modified
+to address the above as follows:
+
+<ul>
+  <li><p>The writer invokes xShmBarrier() before updating the first WalIndexHdr
+  as well as before updating the second.
+
+  <li><p>A reader starts by reading the first WalIndexHdr. If the checksum
+  matches the read data, the read is considered successful without ever
+  examining the second copy. If unsuccessful, an attempt is made to read the
+  second copy. Then the first again, and so on, until some configured limit is
+  reached or a successful read is made. If a successful read is acheived, the
+  xShmBarrier() method is invoked before proceeding. If not, SQLITE_PROTOCOL is
+  returned to the user.
+</ul>
+
+<p>The xShmBarrier() made by the reader and the first of those made by the
+writer together ensure that a reader may not see a version of the hash tables
+that is older than the WalIndexHdr it reads. The second xShmBarrier() call made
+by the writer ... <i>Does what? Makes it more likely that a concurrent reader
+will get a clean read? Can this be removed?</i>
+
+<p>The single nBackfill field is replaced by two 32-bit integer fields that
+may be updated by checkpointers:
+
+<ul>
+  <li><p>iFirstRead - first frame in the log that has not been checkpointed.
+  <li><p>iFirstRecover - first frame in the log that has not been checkpointed
+         and synced into the database file.
+</ul>
+
+<p>After a checkpointer finishes copying data from the log file into the
+database, it updates iFirstRead. If it then syncs the database file (or if it
+is running in synchronous=OFF mode), it updates iFirstRecover as well.
+
+<p>The array of read-lock slots is the same as in SQLite.
+
+<h4 id=shm-file_hash_tables>2.1.2.4. Shm-File Hash Tables</h4>
+
+<p>In SQLite, the shm file contains a series of hash tables. Roughly one hash
+table for each 4096 frames in the WAL file. In SQLite, each 32KB hash table is
+made up of an ordered list of page numbers (16KB) and a table of 8192 16-bit
+slots. This approach must be modified for the current design, as it it not
+generally possible to safely remove entries from a hash table while it is in
+use.
+
+<p>Instead of a single 16KB table of hash slots, each 16KB ordered list of 
+page numbers is followed by two such tables. Meaning that for each 4096
+frames or part thereof in the WAL file there is a 48KB (instead of 32KB) 
+hash table in the shm file.
+
+<p>When the WAL file is first written, the first of each pair of hash slot
+tables is used. Each time a writer wraps around to the start of the WAL 
+file, it toggles which of the pair is updated (i.e. the first time the
+WAL file is wrapped the writer starts using the second of each pair, then
+after it is wrapped a second time it uses the first again, and so on).
+Since a writer may only wrap around to the start of the WAL file when the
+log consists of a single region, this makes it possible to avoid ever
+needing to delete individual elements from hash slot tables. It also 
+makes the shm file 50% larger.
+
+<h3 id=changes_to_locking>2.1.3. Changes to Locking</h3>
+
+<p>The difference between the current design and SQLite in WAL mode is
+that this design supports read-only clients.
+
+<p>Like SQLite WAL mode, this system has essentially two states - live 
+and halted. The system is live when there is at least one open database
+connection and the contents of the shared-memory region are deemed 
+trustworthy. Otherwise, it is halted.
+
+<p>To simplify things a bit, this design combines recovery with connecting
+to the database. In SQLite, when an database is opened the library checks
+to see if the new connection is the only one to the database in question.
+If it is, the shared-memory region is zeroed, which forces recovery to be
+run later on - perhaps by another connection. In the current design,
+recovery shall be run immediately upon determining that the current 
+connection is the first. Using the locking notation for SQLite, the
+connection procedure for read-write clients is therefore:
+
+<pre>
+  Lock(DMS1, EXCLUSIVE)      /* blocking lock */
+    Lock(DMS2, EXCLUSIVE)    /* non-blocking lock */
+    if( successful ){ Run recovery }
+    Lock(DMS2, SHARED)       /* "cannot" fail */
+  Unlock(DMS1)
+</pre>
+
+<p>This makes things simpler by ensuring that recovery never needs to be 
+run by a (possibly read-only) client once it is connected to a live system.
+
+<h4 id=read-only_clients_and_halted_databases>2.1.3.5. Read-only Clients and Halted Databases</h4>
+
+<p>In order to read from a halted database, a read-only client runs a process
+very similar to database recovery to create a private wal-index in heap 
+memory. Since there usually is no WAL file associated with a halted system 
+this is often a no-op. 
+
+<p>In order to safely read from a halted database, a read-only client 
+requires the system to guarantee that for the duration of the read 
+transaction no read-write client connects and overwrites any database or 
+WAL data that the read-only connection may be using. To achieve this, a
+read-only client grabs the CHECKPOINTER lock for the duration of its 
+transaction (including, if required, the part where it builds a private
+wal-index). Holding the CHECKPOINTER lock guarantees that:
+
+<ul>
+  <li><p>That no checkpoint can be run. Ensuring that database pages in
+       use by the read-only client remain undisturbed for the duration of the
+       transaction.
+
+  <li><p>The logical contents of the WAL file header may not be modified. This
+       ensures that if a writer process does wrap around to the start of the
+       WAL file, it may not overwrite any WAL frames that may be used by
+       the read-only connection.
+</ul>
+
+<p>A read-only client may therefore safely read from a database (live 
+or halted) provided that it obtains a shared lock on the CHECKPOINTER. If
+a wal-index is required, the reader constructs it in heap memory after
+obtaining the CHECKPOINTER lock.
+
+<h4 id=read-only_clients_and_live_databases>2.1.3.6. Read-only Clients and Live Databases</h4>
+
+<p>Read-only clients could simply assume that all databases are halted and
+safely access them as described in the previous section. However, this is
+undesirable as (a) checkpointers and read-only transactions will block each
+other, and (b) recovering the contents of a WAL file at the beginning of
+each transaction will degrade performance.
+
+<p>Since recovery is never required once a database is live, read-only 
+clients may connect to and access a database in much the same way as 
+read-write clients. There are still two differences:
+
+<ul>
+  <li><p>Since a read-only client may not attempt an EXCLUSIVE lock, the
+  connection/disconnection protocol must be changed, and 
+
+  <li><p>A read-only client may not modify the value stored in a read-lock 
+  slot. Read-only clients must always use a slot that already contains 
+  a suitable value.
+</ul>
+
+<p>To deal with the first problem, this design uses a block of N "DMS3" 
+locks, where N is relatively large (say 64 or 128), and splits the DMS2
+lock into two separate locks: "DMS2/RW AND DMS2/RO". 
+
+<p>When a read-write client connects to the database, immediately after
+obtaining the shared lock on DMS2, it attempts to obtain an EXCLUSIVE lock on
+one of the bytes in the DMS3 range. If it cannot (indicating that there are
+already N read-write connections), then this is not an error. Read-only clients
+use the DMS3 block to detect whether or not there are already one or more
+read-write clients connected.
+
+<pre>
+  Lock(DMS1, SHARED)            /* blocking lock */
+    Lock(DMS3..DMS3+N, SHARED)  /* non-blocking lock */
+    if( unsuccessful ){ 
+      Lock(DMS2/RO, SHARED)     /* "cannot" fail */
+      /* Connection is now connected to a live database */
+    }
+  Unlock(DMS1)
+</pre>
+
+<p>Using the above scheme, it is possible that a read-only connection
+incorrectly concludes that a database is halted. This can happen if the
+only other connections to the database are either read-only or else 
+read-write connections that failed to grab a DMS3 lock when connecting.
+
+<p><i>How is the second problem solved? Can we somehow guarantee that 
+  there is always at least one usable slot available? Or a fallback slot 
+  locked to indicate that the entire WAL may be in use.</i>
+
+<h2 id=b-tree_level_changes>2.2. B-Tree Level Changes</h2>
+<h3 id=free_page_management>2.2.1. Free Page Management</h3>
+
+<i>
+  <p> Bitmaps? A linked-list similar to SQLite? Other? Which free-list use
+  cases could be improved?  
+</i>
+
+<ul>
+  <li> Free a page.
+  <li> Allocate a page.
+  <li> Allocate a block of pages.
+  <li> Query to see if a given page is free? Does this help with an 
+       incr-vacuum like capability?
+</ul>
+
+tree pages.
+free pages.
+overflow pages.
+
+<h3 id=large_records>2.2.2. Large Records</h3>
+
+<p> The tree is a b+tree, so there are two types of records to consider:
+
+<ul>
+  <li>Key prefixes stored on internal tree pages.
+  <li>Real key/value pairs stored on leaf pages.
+</ul>
+
+<p> The internal tree is populated by a set of key-prefixes such that for
+each pair of adjacent leaf pages there exists exactly one key-prefix within 
+the internal tree that is less than or equal to the smallest key on one of 
+the leaves and larger than all the keys on the other. If any such key-prefix 
+is larger than N bytes in size, it is omitted from the internal tree. When
+the key-prefix is required (as part of a seek or rebalancing operation), it
+is instead read dynamically from the leaf page containing the smallest keys
+larger than or equal to the omitted key-prefix. This leaf may be found by
+following the existing tree pointers. N is selected so as to guarantee a
+minimum internal fanout of (say) 4 or 8.
+
+<p>Any real key/value pair that is too large for a single leaf page is
+spread across the leaf and one or more overflow pages. Overflow pages are
+organized differently to those in SQLite with three goals in mind:
+
+<ul>
+  <li> To make random access to offsets within large values more efficient, and
+  <li> To make it possible to append data to an existing value without
+       rewriting all constituent pages.
+  <li> To make it possible to store large objects contiguously within the
+       database file. So that if the file is memory mapped, a pointer to
+       the object can be returned to the user without copying it into
+       heap memory.
+</ul>
+
+<i>
+  <p> Inode-style overflow pages (instead of a linked list)?
+</i>
+
+<i>
+  <p> Or a single pointer on the inode to a tree of overflow pages.
+</i>
+
+<h3 id=b-tree_page_format>2.2.3. B-Tree Page Format</h3>
+
+<ul>
+  <li><p> Make it easy to avoid overreads.
+  <li><p> Make binary searches as fast as possible.
+</ul>
+
+<p>
+  Each b-tree page has a fixed-size header and a variable-sized footer. The
+  purpose of moving some header data to a footer is to prevent buffer overreads
+  occuring while attempting to read varint fields from the body of a corrupt
+  b-tree page.
+
+<h4 id=page_formats>2.2.3.7. Page Formats</h4>
+
+<p><b>Page Header</b>
+
+<p>Page headers are similar to those in SQLite3: 
+
+<ul>
+  <li> 1 byte - flags.
+  <li> Internal nodes only: 4 bytes - Page number of rightmost child node.
+</ul>
+
+<p><b>Page Footer</b>
+
+<p> Starting from the end of the page, the fields in the page footer are:
+
+<ul>
+  <li> 2 bytes - Number of cells on this page.
+  <li> 2 bytes - Total free space on page, in bytes.
+  <li> 2 bytes - Offset of first byte after last cell.
+  <li> 2 bytes for each cell - the offset to the start of the cell.
+</ul>
+
+<h4 id=cell_formats>2.2.3.8. Cell Formats</h4>
+
+<p><b>B-Tree Nodes</b>
+
+<p>Cell format:
+
+<ul>
+  <li> Number of bytes in the key-prefix (nKey), as a varint. Or, if the key-prefix for
+       this cell is too large to be stored on an internal node (see above), zero.
+  <li> nKey bytes of key data.
+  <li> Page number of b-tree page containing keys equal to or smaller than 
+       the key-prefix as a varint.
+</ul>
+
+<p><b>B-Tree Leaves</b>
+
+<p>Cell format:
+
+<p>There are three types of cells on b-tree leaves, depending on how overflow
+pages are used - (a) cells that do not use overflow pages at all, (b) cells
+that use overflow pages for the value only, and (c) cells that use overflow
+pages for the key and value.
+
+<p>Cell type (a):
+<ul>
+  <li> Number of bytes of the entries key (nKey), as a varint.
+  <li> nKey bytes of key data.
+  <li> Number of bytes in entries value plus two (nValue+2), as a varint. Or,
+       for a delete key, a single 0x01 byte.
+  <li> Unless this is a delete key, nValue bytes of value data.
+</ul>
+
+<p>Cell type (b):
+<ul>
+  <li> Number of bytes in entries key (nKey), as a varint.
+  <li> nKey bytes of key data.
+  <li> Single 0x00 byte.
+  <li> Number of bytes in entries value stored locally (nLVal), as a varint.
+  <li> nLVal bytes of value data.
+  <li> Number of bytes in entries value stored on overflow pages, as a varint.
+</ul>
+
+<p>Cell type (c):
+<ul>
+  <li> Single 0x00 byte.
+  <li> Number of bytes of the entries key (nLocalKey) stored locally, 
+       as a varint.
+  <li> nLocalKey bytes of key data.
+  <li> Number of bytes of the entries key stored on overflow pages, as a varint.
+  <li> Number of bytes in the entries value plus one (nValue+1), as a varint.
+       Or, for a delete key, a single 0x00 byte.
+</ul>
+
+<p>Cell types (b) and (c) are followed by an array of pointers to overflow
+pages. The overflow data for a single entry is distributed between up to 16
+"direct" overflow pages and a single overflow tree. A direct overflow page
+is just that - a pointer to an overflow page that contains data. An overflow
+"tree" is a tree structure where leaves contain overflow data and nodes 
+contain pointers to leaves or sub-trees. All leaves are the same distance
+from the root of the tree.
+
+<p>The overflow array that follows cell types (b) and (c) is formatted as
+follows:
+<ul>
+  <li> Single overflow descriptor byte. The least-significant 4 bits contain
+       the number of direct overflow pages. The most-significant contain the 
+       depth of the overflow tree (0 means the root of the tree contains data). 
+  <li> The page numbers of the N direct overflow pages, formatted as varints.
+  <li> The page number of the root of the overflow tree.
+</ul>
+
+
+
+<h1 id=merge-tree_database_notes>3. Merge-Tree Database Notes</h1>
+
+<p>
+  In general, LSM and other merge-tree databases obtain their performance
+  advantages by:
+
+<ol>
+  <li> <p>Using a merge-tree format to improve locality of writes.
+
+  <li> <p>Accumulating a number of writes in main-memory before flushing them to
+  disk. LSM does this using its "in-memory tree" in shared-memory. LevelDb uses
+  a skip-list stored in heap memory. FTS4 uses an in-memory hash table.
+
+  <li> <p>Shifting significant amounts of work to a background thread or process.
+  LevelDB uses a dedicated background thread. LSM allows a separate database 
+  connections opened in the same or different processes to perform "work" on
+  the database on demand. FTS4 also allows any connection to perform merge
+  operations, but the merging and writing cannot be performed concurrently.
+</ol>
+
+<p>
+FTS4 builds a merge-tree on top of SQLite's SQL layer. When compared to
+LevelDB or LSM, this is limited in two ways:
+
+<ul>
+  <li><p>Changes are only accumulated in memory within a single transaction.
+  All changes must be flushed to disk by the writer process when the 
+  transaction is committed.
+
+  <li><p>Although existing segments may be merged together at any time
+  (background work), doing so requires the same lock as for any other write
+  to the database.
+</ul>
+
+<h2 id=merge-tree_format>3.1. Merge-Tree Format</h2>
+
+<ul>
+  <li><p>Data is stored in segments. Each segment is a tightly packed 
+  read-only b-tree that fits entirely in a single block. A block is 
+  (say) 1MB in size.
+
+  <li><p>Each segment is assigned to a level. Each level contains a 
+  set of non-overlapping segments. All segments in level N are newer
+  than those in segment (N+1).
+
+  <li><p>Segments are linked together using a tree-like data structure
+  stored on regular database pages (mixed in with b-tree data pages).
+</ul>
+
+<h3> Meta-Tree Format</h3>
+
+<p> The meta-tree is a b-tree stored in the same format as the main user
+b-tree. It serves as an index for all segments in the database. The keys
+in the meta-tree are formated as follows:
+
+<ul>
+  <li> Segment age (big-endian 32-bit integer).
+  <li> Level number (ones-compliment of value as a big-endian 32-bit integer).
+  <li> Separator key. All keys within the segment are guaranteed to be as
+       large or larger than the separator key. The separator key may be
+       zero bytes in size.
+</ul>
+
+<p> As well as the records that index all segments in the db, the meta-table
+contains a single summary record. The key is four 0xFF bytes.
+
+<p>For each age between 0 and the largest age in the db, inclusive:
+
+  * current minimum level number (16-bits).
+  * total number of levels. (16-bits)
+  * maximum level in active merge (16-bits).
+
+Store this as a separate record in the meta-table. Even if there segments with
+age=31 in the db, this is still only 6*32=192 bytes.
+
+<h3> Schedule-Page Format</h3>
+
+<p>We might need more than one schedule page. Perhaps anyway... But say 
+worry about this later on.
+
+<p>The writer adds an entry to the schedule-tree. Schedule-tree entries
+are always appended to the tree - the integer key is one greater than the
+previous greatest key.
+
+<p>The entry identifies the following:
+<ul>
+  <li><p> the inputs to the merge (age + level range).
+
+  <li><p> space to write the output (allocated block numbers).
+</ul>
+
+<p>As well as the above, the entry contains space allocated for output 
+fields. Output fields are populated by the checkpointer as it copies the
+page image from the log to the database file. Output fields are:
+
+<ul>
+  <li><p> A flag to indicate that the merge has been performed.
+
+  <li><p> A bitmask (or some other indication) indicating which of the output
+          blocks were populated.
+
+  <li><p> A pointer to a list of overflow pages that were freed, if any.
+
+  <li><p> A pointer to the next key read from the input levels, if any.
+</ul>
+
+<p>Note the implication here: A writer may only modify the page if it currently
+resides in the db file (not the log). The writer can tell if the schedule page
+resides in the db file or the log by checking the "merge performed" flag.
+
+
+<p>The page is organized as follows:
+
+<ul>
+  <li> Busy flag.
+
+  <li> Age of input segments (big-endian u32).
+
+  <li> Max level of input segments (bit-endian u32). All segments of the
+       specified age with a level equal to or less than this are considered
+       inputs.
+
+  <li> Level of output segments.
+
+  <li> Block number of each allocated block (array of <i>nBlock</i> big-endian 
+       u32 fields).
+</ul>
+
+<p>Then, after the merge has taken place:
+<ul>
+  <li> Page number of input page containing next key to read.
+  <li> Cell number of next key to read within the identified page.
+  <li> Number of input blocks used (input blocks are always used in the
+       order they are specified).
+  <li> First page of freed-page list.
+</ul>
+
+
+
+<h2 id=in-memory_tree>3.2. In-Memory Tree</h2>
+
+<p>This design uses the same multi-version in-memory tree that LSM does. 
+The tree structure may be located in heap or shared memory. If shared memory
+is used then a separate file (*-shm2 or some such) is used for the data. The 
+tree-header used by LSM to identify the latest tree version is combined with
+the wal-index header stored in the *-shm file. This makes opening a
+read-transaction simpler than in LSM, as there is no need to ensure that
+compatible versions of the in-memory and on-disk databases are locked.
+
+<h2 id=use_of_a_background_thread_or_process>3.3. Use of a Background Thread or Process</h2>
+
+<p>The b-tree database described above supports the use of a background thread
+or process to perform checkpoints. To acheive LSM/LevelDB type performance,
+this would be extended so that:
+
+<ul>
+  <li> <p>The user thread (WRITER lock) is responsible for updating the
+  in-memory tree and for writing logical log entries to the WAL file.
+
+  <li> <p>The checkpointer (CHECKPOINTER lock) thread is responsible or 
+  copying data from the in-memory tree to the database file.
+
+  <li> <p>The checkpointer (CHECKPOINTER lock) thread is responsible for
+  merging together existing segments within the database file.
+</ul>
+
+<p>The immediate problem is that for b-tree writes, space is allocated
+within the database file by the thread holding the WRITER lock. But the
+second and third points above would be more easily implemented if the
+thread holding the CHECKPOINTER thread were to do so.
+
+<p>Because of this, although a checkpointer does the actual work of copying
+data from the in-memory tree to the database and merging existing segments
+together, these operations must be scheduled and space allocated for them by a
+writer. To do this, a writer appends a special frame to the WAL specifying:
+
+<ul>
+  <li><p>The operation to perform. For example, to flush data from the in-memory
+       tree to disk, or to merge two or more specified segments together.
+
+  <li><p>The address of space within the database file allocated for the output
+       of the operation. For a flush of the in-memory tree, it is not (?) easy
+       to determine the amount of space required in advance. In this case an
+       upper bound on the space required is determined and space allocated on
+       this basis.
+
+       <p>If the operation is a merge of existing segments, then a single 
+       block of space in the db file is allocated for the output of the 
+       operation. If this is insufficient, merging stops once it is full.
+       The remainder of the data in the input segments is handled by a 
+       subsequent merge operation.
+</ul>
+
+<p>The last page of each block contains a description of its contents. After a
+checkpoint has populated a block with the results of a flush or merge operation,
+the next writer client to open a transaction recognizes this and reads the
+description from the last page of the populated block or blocks. It then
+updates the structure that links all populated blocks together (by appending
+new versions of pages to the WAL). In other words, flushing the in-memory 
+tree or merging blocks together is a three-step operation:
+
+<ol>
+  <li><p> A writer process schedules the operation by adding a frame to the WAL.
+  <li><p> A checkpointer does the flush or merge operation as part of a checkpoint.
+  <li><p> A writer observes that the operation has finished and updates the database
+  to link the new segment into the merge-tree.
+</ol>
+
+<h1 id=design_summary>4. Design Summary</h1>
+
+<h2 id=locking>4.1. Locking</h2>
+
+<p>Locks are divided into two groups - those that are used as part of
+connecting to and initializing the system (running recovery), and those 
+that are used by reader, writer and checkpointer clients once they are
+connected to the database.
+
+<p> Locks used during connection/disconnection:
+
+<p><table style="width:90%;margin:auto" border=1>
+  <tr><td style="width:15ex">DMS1
+  <td>This slot is used like a mutex to serialize the connection/disconnection
+      of read/write clients. 
+
+  <tr><td>DMS2/rw
+  <td>Once connected, all read/write clients hold a SHARED lock on this slot
+      until they disconnect.
+
+  <tr><td>DMS2/ro
+  <td>Once connected, all read-only clients hold a SHARED lock on this slot
+      until they disconnect.
+
+  <tr><td>DMS3
+  <td>This is a large block of locks (say 64 or more). Upon connection, each
+    read/write connection attempts to obtain an EXCLUSIVE lock on one of 
+    these slots. If there are already more than 64 read/write connections, this
+    may not be possible. In that case, the connection continues with out the
+    lock.
+</table>
+
+<p> Locks used during normal operations:
+
+<p><table style="width:90%;margin:auto" border=1>
+  <tr><td style="width:15ex">READER
+  <td>An array of (say) 8 slots, each of which is associated with a 32-bit
+    integer value. As in SQLite WAL mode.
+
+  <tr><td> WRITER
+  <td>An EXCLUSIVE lock on this slot is held when a write transaction is open.
+
+  <tr><td> CHECKPOINTER
+  <td>An EXCLUSIVE lock on this slot is held while a checkpoint is underway.
+</table>
+
+<p><b>Read-only Connections</b>
+
+<p>To open a read-transaction, a disconnected read-only client does the following:
+
+<pre>
+  Lock(DMS3..DMS3+N, SHARED)  /* non-blocking lock */
+  if( successful ){
+    Unlock(DMS3..DMS3+N)
+    Lock(CHECKPOINTER, SHARED)
+    if( successful ){
+      "recover" the db into private heap memory.
+      return SQLITE4_OK
+    }
+  }
+  return SQLITE4_BUSY
+</pre>
+
+<p>If SQLITE4_BUSY is returned, then the read-only client can conclude that
+the database is now live. It should attempt to connect to it and then
+re-attempt opening the read-transaction. To connect to a database:
+
+<pre>
+  Lock(DMS1, SHARED)            /* blocking lock */
+    Lock(DMS3..DMS3+N, SHARED)  /* non-blocking lock */
+    if( unsuccessful ){ 
+      Lock(DMS2/RO, SHARED)     /* "cannot" fail */
+      /* Connection is now connected to a live database */
+    }else{
+      Unlock(DMS3..DMS3+N)
+      /* Attempt to connect has failed */
+    }
+  Unlock(DMS1)
+</pre>
+
+<p>
+
+<p><b>Read/Write Connections</b>
+
+<p>To connect:
+<pre>
+  Lock(DMS1, EXCLUSIVE)         /* blocking lock */
+    Lock(DMS2/RO..DMS2/RW, EXCLUSIVE)
+    if( successful ){ 
+      Run recovery to set up shared memory
+      Unlock(DMS2/RO..DMS2/RW)
+    }
+    Lock(DMS2/RW, SHARED)       /* "cannot" fail */
+    for(i=0; i&lt;64; i++){
+      Lock(DMS3+i, EXCLUSIVE)
+      if( successful ) break;
+    }
+  Unlock(DMS1)
+</pre>
+
+<p>To disconnect:
+
+<pre>
+  Lock(DMS1, EXCLUSIVE)         /* blocking lock */
+    Lock(DMS2/RW, EXCLUSIVE)
+    if( successful ){ 
+      Checkpoint
+      Lock(DMS2/RO, EXCLUSIVE)
+      if( successful ){ 
+        Delete WAL+SHM files 
+        Unlock(DMS/RO)
+      }
+      Unlock(DMS/RW)
+    }
+  Unlock(DMS1)
+</pre>
+
+<p>To open a read-transaction:
+
+<pre>
+  Read wal-index header.
+</pre>
+
+<p>To open a write-transaction:
+
+<p>To commit a write-transaction:
+
+
+
+
+
+<hr>
+<hr>
+<hr>
+
+<i>
+<p>
+  As well as the merge-tree file format, LSM style embedded databases derive
+  their performance advantages by:
+
+<ol>
+  <li> <p>Accumulating a number of writes in main-memory before flushing them to
+  disk. LSM does this using its "in-memory tree" in shared-memory. LevelDb uses
+  a skip-list stored in heap memory. FTS4 uses an in-memory hash table.
+
+  <li> <p>Shifting significant amounts of work to a background thread or process.
+  LevelDB uses a dedicated background thread. LSM allows a separate database 
+  connections opened in the same or different processes to perform "work" on
+  the database on demand. FTS4 also allows any connection to perform merge
+  operations, but the merging and writing cannot be performed concurrently.
+</ol>
+
+<p>
+  The basic idea is for the file to contain two separate tree structures - a 
+  b-tree (b+tree) and a merge-tree. In order to query the database, both
+  structures are queried and the results merged, with the merge-tree assumed to
+  contain newer data than the b-tree. Once enough data has accumulated in the
+  merge-tree, it may be merged into the b-tree.
+  
+<p>
+  Blind-writes issued by the application are written to the merge-tree. B-tree
+  writes are written directly to the b-tree, unless the merge-tree contains a
+  conflicting key, in which case they must be written to the merge-tree.
+
+<p>
+  The "merge-tree" is written in the same manner as LSM/FTS4/LevelDB. When
+  an application writes to the merge-tree, a copy of the new KV pair or delete
+  marker is appended to the database log and an in-memory data structure
+  updated. Once sufficient data, perhaps belonging to more than one transaction,
+  has accumulated in the in-memory data structure, its contents are written
+  out to disk. And so on.
+
+<p>
+  The b-tree is written using the same methods as SQLite3 in WAL mode. 
+  Modified pages are appended to the log file and a hash table of the
+  latest version of each page in the log maintained in-memory. Some parts
+  of the merge tree are written using this method as well.
+
+<h id=data_structures>4. Data Structures</h1>
+
+<h id=log_file>4.1. Log file</h2>
+
+How do we make a wal file into a circular log like LSM uses?
+
+In LSM, there are two ways the log file may be read. From byte offset 0, with
+well-known checksum initializer, or from some point midway through the file 
+specified by an offset and checksum initializer. 
+
+The log file also features "jump markers" used to wrap the cursor etc.
+
+Key point is that there is some other checksummed record in which a log
+offset/checksum may be stored.
+
+So, we either need to do this or find a new "well-known offset" to start 
+at.
+
+The obvious point is the start of the database file. Two problems:
+
+  * It changes too often.
+  * Blast-radius may change after db is created.
+
+So, elsewhere in the log file? Space reserved at the start of the log?
+At the start of the log we reserve a block of size $blastradius. Then 
+begin writing the log immediately following this.
+
+When recovering, attempt to read a header from the start of the log file.
+If one can be read, it contains an offset to start reading the log at. In
+this case proceed. Otherwise, begin searching for a valid header at 
+various power-of-two offsets within the log file (i.e. at offset 512, 
+then 1024, etc.). This may be optimized to check the sector-size offset
+first.
+
+<p><b>Log file topology</b>
+
+
+
+<p><b>Hash tables and log file wrapping</b>
+
+<p>In WAL mode, the shm file contains a list of the page numbers corresponding
+to the frames in the wal file. And a hash table to aid in searching this list.
+
+<p>How does this change when the log file becomes wrappable...
+
+<p>Is it possible to clear entries from the hash-table/sorted-list at
+checkpoint time?
+
+Do we use LSM style CHECKPOINTER/WRITER/WORKER locking here?
+
+
+
+<h id=merge-tree_data>4.2. Merge-Tree Data</h2>
+
+<p>
+  Merge-tree data is stored in segments. A segment is a tightly
+  packed read-only b-tree. Each segment is equal to or less than some
+  configured size (say 512KB or 2MB - probably not more). The majority of
+  segments should be exactly this size. This size is known as the database
+  block size.
+
+<p>
+  When a new segment is created, either by flushing the in-memory buffer or by
+  merging data from two or more existing segments together, it is written
+  directly into the database file (bypassing the log file). All that is written
+  to the log file is a checksum of the new segment, for use during recovery.
+  Even if they are less than a block in size, segments are always written into
+  aligned blocks.
+
+<p>
+  The data structure used to keep track of all segments within a database is
+  updated using the same (WAL-like) methods as the b-tree data. For each segment,
+  the data structure stores:
+
+<ul>
+  <li> The smallest key it contains,
+  <li> The largest key it contains, and
+  <li> A pointer to the segment within the database file.
+</ul>
+
+
+
+<hr>
+  
+<p>
+  The tree structure is similar to a b-tree. Each internal node has N 
+  children and N-1 divider keys. The Ith divider key on an internal node
+  is a copy of the largest key located within the Ith child sub-tree of 
+  the node.
+  
+<p>
+  Other Invariants:
+  
+<ul>
+    <li> All segments on a child node must be older than all overlapping
+      intervals on its parent.
+  
+    <li> For key K, the path between the root node and the leaf that would
+      contain K must visit all nodes that contain segments overlapping K.
+  
+    <li> The above implies that although intervals on a node may overlap with
+      other segments on the same node, an ancestor node or a descendent
+      node, they may not overlap with segments on a sibling node.
+</ul>
+  
+<p>
+  Within a node, the relative age of each segment is stored (i.e. enough
+  information to sort all segments in order of age).
+
+<p>
+  In some cases, a node may be extended with one or more overflow pages 
+  in linked into a list. Making nodes effectively variably sized.
+
+<p><b>Insert-Segment:</b>
+
+<ol>
+  <li><p> Insert the new segment into the root node. If the root node is not
+     also a leaf node, immediately attempt to promote the new segment to
+     a child node. The segment may be promoted if:
+
+    <ol>
+       <li> There are no existing (older) segments on the root node that
+         overlap with it, and
+
+       <li> both the start and end key of the new segment may be stored 
+         within the same child sub-tree.
+    </ol>
+
+    <p>
+     Promote the new segment as many times as possible (i.e. until it
+     is stored on a leaf or on a node for which one of the two conditions 
+     above is not met).
+
+  <li><p> Check if the node selected by step 1 has enough space to accomodate 
+     the new segment. If so, no problem.
+
+    <p>
+     Otherwise, the node content is redistributed between itself and
+     one or two siblings, and a new sibling allocated if necessary.
+     This is slightly more complex than a b-tree rebalance, as the
+     first and last keys of each segment must remain on the same node.
+     Where this makes the content impossible to distribute between
+     nodes, the original node is extended with an overflow page.
+</ol>
+
+<p><b> Merge-Segments:</b>
+
+<ol>
+  <li> From the selected node X (see below), select two or more overlapping 
+     segments to merge. 
+
+  <li> Merge the content of the selected segments together into a set of zero or
+     more non-overlapping segments. Remove the originals from node X. Then
+     "insert" each of the new segments into the sub-tree headed by node X
+     (including attempting to promote the new segments etc.). 
+
+  <li> If, following this, node X is over or underfull, rebalance it with
+     its siblings in the manner of a b-tree.
+</ol>
+
+<p><b> Select-Segment:</b>
+
+<p>
+  Each node maintains a count of the number of overlapping segments 
+  currently stored on it. Additionally, each pointer to a sub-tree
+  on an internal node also stores the maximum value of this metric for 
+  all nodes in the sub-tree.
+
+<p>
+  This implies that when a node is updated by a blind write operation, all
+  nodes between it and the root node may also require modification (how
+  often?).
+
+<p>
+  This metric, along with some pseudo-random selection when there 
+  exist multiple nodes with the same value, can be used to select
+  a reasonable place to merge segments together with little effort.
+
+<h id=b-tree_data>4.3. B-Tree Data</h2>
+
+<p>
+  B-tree KV pairs are stored in leaf pages. If no merge-tree data is ever
+  written to a database it is equivalent to a b+tree. The rebalancing and
+  other tree manipulations required as a result of b+-tree style insert and
+  delete operations are the same as they are for regular b+-tree structures,
+  except that care must be taken to keep the start and end keys of any
+  segments on the same internal node (see above).
+
+<p>
+  If a database is only ever written using blind writes, then it is in 
+  optimal form when no two segments in the database overlap. If a database
+  contains both b-tree and blind write data, then the blind writes must
+  be merged into the b-tree data before the database is in its optimal
+  state.
+
+<p>
+  With blind write data only (and no merging with b-tree data), segments
+  may propagate all the way to leaf nodes. However, if the tree contains
+  both segment and b-tree data, then segments that reside on tree nodes
+  that are the head of a sub-tree roughly the size of a single segment 
+  should be merged with b-tree data at that point, not promoted further 
+  down the tree. So, after a node's segments are selected for merging it 
+  needs to be possible to determine if the content should be merged with 
+  the sub-tree headed by the node as well as with other segments. The
+  answer is yes if:
+
+<ul>
+  <li> The sub-tree contains no segments (except those on its root node).
+  <li> The sub-tree is smaller in size than some threshold based on the 
+       segment size (say 2 or 4 times).
+</ul>
+
+<p>
+  Storing the number of segments of the sub-tree on each node seems Ok. This
+  means updating the path between the updated node and the root each time the
+  set of segments on a node is modified. Since segments are much larger than
+  this path, and updated relatively infrequently, this is acceptable.
+
+<p>
+  Maintaining the total size of the sub-tree is more difficult. Can we update
+  each time a leaf is added or removed? Sounds like that might be a lot of
+  extra updates over a straight b-tree.
+
+<p>
+  Can we just estimate the quantity of data based on the number of children
+  the node has along with the distance from the tree leaves? If a node has
+  nChild children and the sub-tree is nSub elements high, the size of the 
+  sub-tree could be estimated as nChild raised to the nSub'th power. This 
+  estimate is probably good enough for the test above.
+
+
+<h id=file_format>5. File Format</h1>
+
+<p>
+  The data structure is stored on disk in a manner similar to SQLite WAL
+  databases. The file-system is populated with:
+
+<ul>
+  <li> A database file.
+  <li> A write-ahead-log file, containing recently made modifications to the
+       database.
+  <li> A shared-memory file, the contents of which may be reconstructed by
+       parsing the wal file.
+</ul>
+
+<p>
+  As well as the new page images contained in an SQLite WAL file, this log 
+  file also contains KV pairs and delete markers written in blind write mode.
+
+<p>
+  Similarly, as well as the hash-tables used to index the page images contained
+  in the log file, the shared-memory file also holds a tree structure
+  containing all the blind write data from the log file (as it does in LSM and
+  LevelDB).
+
+<p>
+  As in SQLite3, free space within the database file is tracked on a per-page 
+  basis. The data structure used to store the set of free pages stores them 
+  in sorted order.
+
+<p>Note: Track free blocks (blocks on which all pages are free) separately?
+
+
+<h id=locking_and_concurrency>6. Locking and Concurrency</h1>
+
+<p>
+
+<h id=pager_level_design>7. Pager Level Design</h1>
+
+<p>
+  Include management of free-space within the database in this level.
+
+<p>
+  The pager level provides two sizes of allocation:
+  <ul>
+    <li> Page size (1-4 KB), and
+    <li> Block size (512KB to 2MB).
+  </ul>
+</p>
+-->
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

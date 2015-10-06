@@ -1,0 +1,579 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configurationDescriptor version="95">
+  <logicalFolder name="root" displayName="root" projectFiles="true" kind="ROOT">
+    <df root="." name="0">
+      <df name="ext">
+        <df name="icu">
+          <in>icu.c</in>
+        </df>
+        <df name="rtree">
+          <in>rtree.c</in>
+        </df>
+      </df>
+      <df name="src">
+        <in>alter.c</in>
+        <in>analyze.c</in>
+        <in>attach.c</in>
+        <in>auth.c</in>
+        <in>bt_lock.c</in>
+        <in>bt_log.c</in>
+        <in>bt_main.c</in>
+        <in>bt_pager.c</in>
+        <in>bt_unix.c</in>
+        <in>bt_varint.c</in>
+        <in>build.c</in>
+        <in>callback.c</in>
+        <in>complete.c</in>
+        <in>ctime.c</in>
+        <in>date.c</in>
+        <in>delete.c</in>
+        <in>env.c</in>
+        <in>expr.c</in>
+        <in>fault.c</in>
+        <in>fkey.c</in>
+        <in>fts5.c</in>
+        <in>fts5func.c</in>
+        <in>func.c</in>
+        <in>global.c</in>
+        <in>hash.c</in>
+        <in>insert.c</in>
+        <in>kv.c</in>
+        <in>kvbt.c</in>
+        <in>kvldb.c</in>
+        <in>kvlsm.c</in>
+        <in>kvmem.c</in>
+        <in>legacy.c</in>
+        <in>lsm_ckpt.c</in>
+        <in>lsm_file.c</in>
+        <in>lsm_log.c</in>
+        <in>lsm_main.c</in>
+        <in>lsm_mem.c</in>
+        <in>lsm_mutex.c</in>
+        <in>lsm_shared.c</in>
+        <in>lsm_sorted.c</in>
+        <in>lsm_str.c</in>
+        <in>lsm_tree.c</in>
+        <in>lsm_unix.c</in>
+        <in>lsm_varint.c</in>
+        <in>main.c</in>
+        <in>malloc.c</in>
+        <in>math.c</in>
+        <in>mem.c</in>
+        <in>mem0.c</in>
+        <in>mem2.c</in>
+        <in>mem3.c</in>
+        <in>mem5.c</in>
+        <in>mutex.c</in>
+        <in>mutex_noop.c</in>
+        <in>mutex_unix.c</in>
+        <in>mutex_w32.c</in>
+        <in>os.c</in>
+        <in>pragma.c</in>
+        <in>prepare.c</in>
+        <in>printf.c</in>
+        <in>random.c</in>
+        <in>resolve.c</in>
+        <in>rowset.c</in>
+        <in>select.c</in>
+        <in>shell.c</in>
+        <in>status.c</in>
+        <in>tokenize.c</in>
+        <in>trigger.c</in>
+        <in>update.c</in>
+        <in>utf.c</in>
+        <in>util.c</in>
+        <in>varint.c</in>
+        <in>vdbe.c</in>
+        <in>vdbeapi.c</in>
+        <in>vdbeaux.c</in>
+        <in>vdbecodec.c</in>
+        <in>vdbecursor.c</in>
+        <in>vdbemem.c</in>
+        <in>vdbetrace.c</in>
+        <in>walker.c</in>
+        <in>where.c</in>
+      </df>
+      <df name="tool">
+        <in>lemon.c</in>
+        <in>mkkeywordhash.c</in>
+      </df>
+      <in>opcodes.c</in>
+      <in>parse.c</in>
+    </df>
+    <df root="src" name="1">
+    </df>
+    <logicalFolder name="ExternalFiles"
+                   displayName="Important Files"
+                   projectFiles="false"
+                   kind="IMPORTANT_FILES_FOLDER">
+      <itemPath>Makefile.linux-gcc</itemPath>
+    </logicalFolder>
+  </logicalFolder>
+  <sourceFolderFilter>^(nbproject)$</sourceFolderFilter>
+  <sourceRootList>
+    <Elem>.</Elem>
+  </sourceRootList>
+  <projectmakefile>Makefile.linux-gcc</projectmakefile>
+  <confs>
+    <conf name="Default" type="0">
+      <toolsSet>
+        <compilerSet>default</compilerSet>
+        <dependencyChecking>false</dependencyChecking>
+        <rebuildPropChanged>false</rebuildPropChanged>
+      </toolsSet>
+      <flagsDictionary>
+        <element flagsID="0" commonFlags="-g -O2 -fPIC"/>
+      </flagsDictionary>
+      <codeAssistance>
+      </codeAssistance>
+      <makefileType>
+        <makeTool>
+          <buildCommandWorkingDir>.</buildCommandWorkingDir>
+          <buildCommand>${MAKE} -f Makefile.linux-gcc</buildCommand>
+          <cleanCommand>${MAKE} -f Makefile.linux-gcc clean</cleanCommand>
+          <executablePath>sqlite4</executablePath>
+          <cTool>
+            <incDir>
+              <pElem>.</pElem>
+            </incDir>
+          </cTool>
+        </makeTool>
+      </makefileType>
+      <item path="ext/icu/icu.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="ext/rtree/rtree.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <folder path="0/ext">
+        <cTool>
+          <incDir>
+            <pElem>src</pElem>
+            <pElem>ext/rtree</pElem>
+            <pElem>ext/icu</pElem>
+            <pElem>ext/fts3</pElem>
+            <pElem>ext/async</pElem>
+          </incDir>
+          <preprocessorList>
+            <Elem>HAVE_FDATASYNC=1</Elem>
+            <Elem>HAVE_GMTIME_R</Elem>
+            <Elem>HAVE_LOCALTIME_R</Elem>
+            <Elem>HAVE_MALLOC_USABLE_SIZE</Elem>
+            <Elem>HAVE_USLEEP</Elem>
+            <Elem>NDEBUG=1</Elem>
+            <Elem>SQLITE4_CORE</Elem>
+            <Elem>SQLITE4_OMIT_VIRTUALTABLE=1</Elem>
+            <Elem>SQLITE4_OMIT_XFER_OPT</Elem>
+          </preprocessorList>
+        </cTool>
+      </folder>
+      <folder path="0/src">
+        <cTool>
+          <incDir>
+            <pElem>src</pElem>
+            <pElem>ext/rtree</pElem>
+            <pElem>ext/icu</pElem>
+            <pElem>ext/fts3</pElem>
+            <pElem>ext/async</pElem>
+          </incDir>
+          <preprocessorList>
+            <Elem>HAVE_FDATASYNC=1</Elem>
+            <Elem>HAVE_GMTIME_R</Elem>
+            <Elem>HAVE_LOCALTIME_R</Elem>
+            <Elem>HAVE_MALLOC_USABLE_SIZE</Elem>
+            <Elem>HAVE_USLEEP</Elem>
+            <Elem>NDEBUG=1</Elem>
+            <Elem>SQLITE4_OMIT_VIRTUALTABLE=1</Elem>
+            <Elem>SQLITE4_OMIT_XFER_OPT</Elem>
+          </preprocessorList>
+        </cTool>
+      </folder>
+      <item path="opcodes.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+          <incDir>
+            <pElem>src</pElem>
+            <pElem>ext/rtree</pElem>
+            <pElem>ext/icu</pElem>
+            <pElem>ext/fts3</pElem>
+            <pElem>ext/async</pElem>
+          </incDir>
+          <preprocessorList>
+            <Elem>HAVE_FDATASYNC=1</Elem>
+            <Elem>HAVE_GMTIME_R</Elem>
+            <Elem>HAVE_LOCALTIME_R</Elem>
+            <Elem>HAVE_MALLOC_USABLE_SIZE</Elem>
+            <Elem>HAVE_USLEEP</Elem>
+            <Elem>NDEBUG=1</Elem>
+            <Elem>SQLITE4_OMIT_VIRTUALTABLE=1</Elem>
+            <Elem>SQLITE4_OMIT_XFER_OPT</Elem>
+          </preprocessorList>
+        </cTool>
+      </item>
+      <item path="parse.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+          <incDir>
+            <pElem>src</pElem>
+            <pElem>ext/rtree</pElem>
+            <pElem>ext/icu</pElem>
+            <pElem>ext/fts3</pElem>
+            <pElem>ext/async</pElem>
+          </incDir>
+          <preprocessorList>
+            <Elem>HAVE_FDATASYNC=1</Elem>
+            <Elem>HAVE_GMTIME_R</Elem>
+            <Elem>HAVE_LOCALTIME_R</Elem>
+            <Elem>HAVE_MALLOC_USABLE_SIZE</Elem>
+            <Elem>HAVE_USLEEP</Elem>
+            <Elem>NDEBUG=1</Elem>
+            <Elem>SQLITE4_OMIT_VIRTUALTABLE=1</Elem>
+            <Elem>SQLITE4_OMIT_XFER_OPT</Elem>
+          </preprocessorList>
+        </cTool>
+      </item>
+      <item path="src/alter.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/analyze.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/attach.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/auth.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/bt_lock.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/bt_log.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/bt_main.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/bt_pager.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/bt_unix.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/bt_varint.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/build.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/callback.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/complete.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/ctime.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/date.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/delete.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/env.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/expr.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/fault.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/fkey.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/fts5.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/fts5func.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/func.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/global.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/hash.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/insert.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/kv.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/kvbt.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/kvldb.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/kvlsm.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/kvmem.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/legacy.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/lsm_ckpt.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/lsm_file.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/lsm_log.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/lsm_main.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/lsm_mem.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/lsm_mutex.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/lsm_shared.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/lsm_sorted.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/lsm_str.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/lsm_tree.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/lsm_unix.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/lsm_varint.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/main.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/malloc.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/math.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/mem.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/mem0.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/mem2.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/mem3.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/mem5.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/mutex.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/mutex_noop.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/mutex_unix.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/mutex_w32.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/os.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/pragma.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/prepare.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/printf.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/random.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/resolve.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/rowset.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/select.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/shell.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/status.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/tokenize.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/trigger.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/update.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/utf.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/util.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/varint.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/vdbe.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/vdbeapi.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/vdbeaux.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/vdbecodec.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/vdbecursor.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/vdbemem.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/vdbetrace.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/walker.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="src/where.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="tool/lemon.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+        </cTool>
+      </item>
+      <item path="tool/mkkeywordhash.c" ex="false" tool="0" flavor2="0">
+        <cTool flags="0">
+          <preprocessorList>
+            <Elem>HAVE_FDATASYNC=1</Elem>
+            <Elem>HAVE_GMTIME_R</Elem>
+            <Elem>HAVE_LOCALTIME_R</Elem>
+            <Elem>HAVE_MALLOC_USABLE_SIZE</Elem>
+            <Elem>HAVE_USLEEP</Elem>
+            <Elem>NDEBUG=1</Elem>
+            <Elem>SQLITE4_OMIT_VIRTUALTABLE=1</Elem>
+            <Elem>SQLITE4_OMIT_XFER_OPT</Elem>
+          </preprocessorList>
+        </cTool>
+      </item>
+    </conf>
+  </confs>
+</configurationDescriptor>

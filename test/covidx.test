@@ -1,0 +1,71 @@
+# 2013 July 23
+#
+# The author disclaims copyright to this source code.  In place of
+# a legal notice, here is a blessing:
+#
+#    May you do good and not evil.
+#    May you find forgiveness for yourself and forgive others.
+#    May you share freely, never taking more than you give.
+#
+#***********************************************************************
+# This file implements regression tests for SQLite library.  The
+# focus of this file is testing the COVERING clause of the CREATE 
+# INDEX statement.
+#
+
+set testdir [file dirname $argv0]
+source $testdir/tester.tcl
+set ::testprefix covidx
+
+#-------------------------------------------------------------------------
+#
+do_execsql_test 1.0 {
+  CREATE TABLE t1(a, b, c);
+  CREATE TABLE t2("123abc", "odd column name");
+  CREATE TABLE "frivolous table name"(x, y);
+}
+
+foreach {tn sql res} {
+  1 { t1(a) COVERING(a, b, c) }                   {0 {}}
+  2 { t1(a) COVERING ALL }                        {0 {}}
+  3 { t2("123abc") COVERING ("odd column name") } {0 {}}
+  4 { "frivolous table name"(x) COVERING (y) }    {0 {}}
+
+  5 { t1(c) COVERING (d) } {1 {table t1 has no column named d}}
+  6 { t1(c) COVERING () }  {1 {near ")": syntax error}}
+} {
+  do_catchsql_test 1.$tn "CREATE INDEX i1 ON $sql" $res
+  execsql { 
+    DROP INDEX IF EXISTS i1;
+  }
+}
+
+#-------------------------------------------------------------------------
+#
+do_execsql_test 2.1 {
+  CREATE TABLE x1(x);
+  CREATE INDEX xi1 ON x1(x) COVERING (x);
+  CREATE INDEX xi2 ON x1(x) COVERING ALL   ;
+
+  SELECT sql FROM sqlite_master where type = 'index';
+} {
+  {CREATE INDEX xi1 ON x1(x) COVERING (x)}
+  {CREATE INDEX xi2 ON x1(x) COVERING ALL}
+}
+
+#-------------------------------------------------------------------------
+#
+reset_db
+do_execsql_test 3.1 {
+  CREATE TABLE t1(a PRIMARY KEY, b, c);
+  CREATE INDEX i1 ON t1(b) COVERING(c, b);
+} {}
+do_execsql_test 3.2 {
+  INSERT INTO t1 VALUES(1, 'x', 'y');
+} {}
+do_execsql_test 3.3 {
+  SELECT c FROM t1 ORDER BY b;
+} {y}
+
+finish_test
+

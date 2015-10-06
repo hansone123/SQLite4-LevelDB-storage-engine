@@ -1,0 +1,185 @@
+# 2013 Jul 31
+#
+# The author disclaims copyright to this source code.  In place of
+# a legal notice, here is a blessing:
+#
+#    May you do good and not evil.
+#    May you find forgiveness for yourself and forgive others.
+#    May you share freely, never taking more than you give.
+#
+#***********************************************************************
+# This file implements regression tests for SQLite library.  The
+# focus of this file is testing the SELECT statement.
+#
+
+set testdir [file dirname $argv0]
+source $testdir/tester.tcl
+set ::testprefix kvstore2
+
+
+do_execsql_test 1.0 { PRAGMA writable_schema = 1; } {}
+
+do_catchsql_test 1.1 {
+  INSERT INTO sqlite_kvstore VALUES(NULL, 'helloworld');
+} {1 {sqlite_kvstore.key may not be NULL}}
+
+do_execsql_test 1.2 {
+  INSERT INTO sqlite_kvstore VALUES('abc', 'helloworld');
+  SELECT count(*) FROM sqlite_kvstore;
+} {1}
+
+do_execsql_test 1.3 {
+  SELECT CAST(key AS text), CAST(value AS text) FROM sqlite_kvstore;
+} {abc helloworld}
+
+do_execsql_test 1.4 {
+  SELECT quote(key), quote(value) FROM sqlite_kvstore;
+} {x'616263' x'68656c6c6f776f726c64'}
+
+do_catchsql_test 1.5 {
+  INSERT INTO sqlite_kvstore VALUES('abc', 'def');
+} {1 {PRIMARY KEY must be unique}}
+
+do_execsql_test 1.6 {
+  REPLACE INTO sqlite_kvstore VALUES('abc', 'def');
+  SELECT cast(key AS text), cast(value AS text) FROM sqlite_kvstore;
+} {abc def}
+
+do_execsql_test 1.7 {
+  INSERT INTO sqlite_kvstore VALUES(123, 456.789);
+  SELECT cast(key AS text), cast(value AS text) FROM sqlite_kvstore;
+} {123 456.789 abc def}
+
+do_execsql_test 1.8 {
+  SELECT quote(key), quote(value) FROM sqlite_kvstore;
+} {x'313233' x'3435362e373839' x'616263' x'646566'}
+
+do_execsql_test 1.9 {
+  UPDATE sqlite_kvstore SET value = x'AABBCC' WHERE key = x'616263';
+  SELECT quote(key), quote(value) FROM sqlite_kvstore;
+} {x'313233' x'3435362e373839' x'616263' x'aabbcc'}
+
+do_execsql_test 1.10 {
+  UPDATE sqlite_kvstore SET value = 111;
+  SELECT quote(key), quote(value) FROM sqlite_kvstore;
+} {x'313233' x'313131' x'616263' x'313131'}
+
+do_execsql_test 1.11 {
+  DELETE FROM sqlite_kvstore WHERE key = x'313233';
+  SELECT quote(key), quote(value) FROM sqlite_kvstore;
+} {x'616263' x'313131'}
+
+do_execsql_test 1.12 {
+  DELETE FROM sqlite_kvstore;
+  SELECT quote(key), quote(value) FROM sqlite_kvstore;
+} {}
+
+#-------------------------------------------------------------------------
+# INSERT INTO SELECT statements with sqlite_kvstore.
+# 
+reset_db
+do_execsql_test 2.1 {
+  CREATE TABLE t1(x PRIMARY KEY);
+  INSERT INTO t1 VALUES(1);
+  INSERT INTO t1 VALUES(2);
+  INSERT INTO t1 VALUES(3);
+  INSERT INTO t1 VALUES(4);
+}
+
+do_execsql_test 2.2 { SELECT count(*) FROM sqlite_kvstore } 5
+do_execsql_test 2.3 {
+  PRAGMA writable_schema = 1;
+  INSERT INTO sqlite_kvstore SELECT x,x FROM t1;
+  SELECT count(*) FROM sqlite_kvstore;
+} {9}
+
+do_execsql_test 2.4 {
+  INSERT INTO t1 SELECT key FROM sqlite_kvstore;
+  SELECT count(*) FROM sqlite_kvstore;
+} {18}
+
+#-------------------------------------------------------------------------
+# UPDATE and INSERT with various on conflict clauses.
+# 
+reset_db
+do_execsql_test 3.1 {
+  PRAGMA writable_schema = 1;
+  INSERT INTO sqlite_kvstore VALUES('one', 'i');
+  INSERT INTO sqlite_kvstore VALUES('two', 'ii');
+  INSERT INTO sqlite_kvstore VALUES('three', 'iii');
+  INSERT INTO sqlite_kvstore VALUES('four', 'iv');
+  INSERT INTO sqlite_kvstore VALUES('five', 'v');
+}
+
+do_execsql_test 3.2 {
+  SELECT CAST(key AS text), CAST(value AS text) FROM sqlite_kvstore;
+} {five v four iv one i three iii two ii}
+
+do_execsql_test 3.3 {
+  UPDATE OR REPLACE sqlite_kvstore SET key = 'three' WHERE value = x'76';
+  SELECT CAST(key AS text), CAST(value AS text) FROM sqlite_kvstore;
+} {four iv one i three v two ii}
+
+do_execsql_test 3.4 {
+  UPDATE OR IGNORE sqlite_kvstore SET key = 'five';
+  SELECT CAST(key AS text), CAST(value AS text) FROM sqlite_kvstore;
+} {five iv one i three v two ii}
+
+do_execsql_test 3.5 {
+  INSERT OR IGNORE INTO sqlite_kvstore VALUES('one', 'c');
+  SELECT CAST(key AS text), CAST(value AS text) FROM sqlite_kvstore;
+} {five iv one i three v two ii}
+
+do_execsql_test 3.6 {
+  INSERT OR REPLACE INTO sqlite_kvstore VALUES('one', 'c');
+  SELECT CAST(key AS text), CAST(value AS text) FROM sqlite_kvstore;
+} {five iv one c three v two ii}
+
+do_execsql_test 3.7 {
+  CREATE TEMP TABLE t1(x, y);
+  INSERT INTO t1 VALUES('six', 'vi');
+  INSERT INTO t1 VALUES('seven', 'vii');
+  INSERT INTO t1 VALUES('five', 'hello world');
+}
+
+do_catchsql_test 3.8 {
+  INSERT INTO sqlite_kvstore SELECT * FROM t1;
+} {1 {PRIMARY KEY must be unique}}
+
+do_execsql_test 3.9 {
+  INSERT OR IGNORE INTO sqlite_kvstore SELECT * FROM t1;
+  SELECT CAST(key AS text), CAST(value AS text) FROM sqlite_kvstore;
+} {five iv one c seven vii six vi three v two ii}
+
+do_execsql_test 3.10 {
+  DELETE FROM sqlite_kvstore WHERE CAST(key AS text) = 'six';
+  DELETE FROM sqlite_kvstore WHERE CAST(key AS text) = 'seven';
+  SELECT CAST(key AS text), CAST(value AS text) FROM sqlite_kvstore;
+} {five iv one c three v two ii}
+
+do_execsql_test 3.11 {
+  INSERT OR REPLACE INTO sqlite_kvstore SELECT * FROM t1;
+  SELECT CAST(key AS text), CAST(value AS text) FROM sqlite_kvstore;
+} {five {hello world} one c seven vii six vi three v two ii}
+
+#-------------------------------------------------------------------------
+# Check that indexes and triggers may not be added to sqlite_kvstore.
+# Regardless of the writable_schema setting.
+# 
+foreach {tn ws} {1 off 2 on} {
+  reset_db
+  execsql " PRAGMA writable_schema = $ws "
+
+  do_catchsql_test 4.$tn.1 {
+    CREATE INDEX i1 ON sqlite_kvstore(value)
+  } {1 {table sqlite_kvstore may not be indexed}}
+
+  do_catchsql_test 4.$tn.2 {
+    CREATE TRIGGER tr1 AFTER INSERT ON sqlite_kvstore BEGIN;
+      SELECT 1;
+    END;
+  } {1 {cannot create trigger on system table}}
+}
+
+finish_test
+

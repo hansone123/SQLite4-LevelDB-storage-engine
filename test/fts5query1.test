@@ -1,0 +1,184 @@
+# 2012 December 17
+#
+# The author disclaims copyright to this source code.  In place of
+# a legal notice, here is a blessing:
+#
+#    May you do good and not evil.
+#    May you find forgiveness for yourself and forgive others.
+#    May you share freely, never taking more than you give.
+#
+#*************************************************************************
+#
+#
+
+set testdir [file dirname $argv0]
+source $testdir/tester.tcl
+set testprefix fts5query1
+
+do_execsql_test 1.0 {
+  CREATE TABLE t1(a PRIMARY KEY, b, c);
+  CREATE INDEX i1 ON t1 USING fts5();
+}
+
+foreach {tn stmt} {
+  1 "INSERT INTO t1 VALUES(1, 'a b c', 'd e f')"
+  2 "INSERT INTO t1 VALUES(2, 'b c e', 'A A a')"
+  3 "INSERT INTO t1 VALUES(3, 'd A A', 'e c a')"
+  4 "DELETE FROM t1 WHERE a=1"
+  5 "DELETE FROM t1"
+  6 "INSERT INTO t1 VALUES(1, 'May you do', 'good and not evil')"
+  7 "INSERT INTO t1 VALUES(2, 'May you find', 'forgiveness for yourself')"
+  8 "UPDATE t1 SET b = 'and forgive others' WHERE a = 2"
+  9 "UPDATE t1 SET a = 4, c = 'a b c d' WHERE a = 2"
+} {
+  do_execsql_test 1.$tn.1 $stmt
+  do_execsql_test 1.$tn.2 {PRAGMA fts_check(i1)} ok
+}
+
+do_execsql_test 2.0 {
+  DROP TABLE t1;
+  CREATE TABLE t1(x PRIMARY KEY, y);
+  CREATE INDEX i1 ON t1 USING fts5();
+
+  INSERT INTO t1 VALUES(1, 'o n e');
+  INSERT INTO t1 VALUES(2, 't w o');
+  INSERT INTO t1 VALUES(3, 't h r e e');
+  INSERT INTO t1 VALUES(4, 'f o u r');
+}
+
+foreach {tn stmt res} {
+  1 {SELECT x FROM t1 WHERE t1 MATCH 't'}   {2 3}
+  2 {SELECT x FROM t1 WHERE t1 MATCH 'abc'} {}
+  3 {SELECT x FROM t1 WHERE t1 MATCH 't+h'} {3}
+  4 {SELECT x FROM t1 WHERE t1 MATCH 't+o'} {}
+} {
+  do_execsql_test 2.$tn $stmt $res
+}
+
+do_execsql_test 3.0 {
+  DROP TABLE t1;
+  CREATE TABLE t1(x PRIMARY KEY, y);
+  CREATE INDEX i1 ON t1 USING fts5();
+
+  INSERT INTO t1 VALUES(1, 'a b c d e f g h i j k l m n o p q r s t u');
+  INSERT INTO t1 VALUES(2, 'a e i o u b c d f g h j k l m n p q r s t');
+  INSERT INTO t1 VALUES(3, 'b c d f g h j k l m n p q r s t v w x y z');
+  INSERT INTO t1 VALUES(4, 'a e i o u');
+}
+
+foreach {tn stmt res} {
+  1  {SELECT x FROM t1 WHERE t1 MATCH 'a NEAR/5 i'}       {2 4}
+  2  {SELECT x FROM t1 WHERE t1 MATCH 'a NEAR/3 b'}       {1}
+  3  {SELECT x FROM t1 WHERE t1 MATCH 'a NEAR/2 d'}       {1}
+  4  {SELECT x FROM t1 WHERE t1 MATCH 'a NEAR/2 e'}       {2 4}
+  5  {SELECT x FROM t1 WHERE t1 MATCH 'a NEAR/3 e'}       {1 2 4}
+  6  {SELECT x FROM t1 WHERE t1 MATCH 'b+c NEAR/2 g+h'}   {2 3}
+  7  {SELECT x FROM t1 WHERE t1 MATCH 'b+c NEAR/3 g+h'}   {1 2 3}
+  8  {SELECT x FROM t1 WHERE t1 MATCH 'b+c NEAR/2 g+h+j'} {2 3}
+  9  {SELECT x FROM t1 WHERE t1 MATCH 'b+c+d NEAR/1 g+h'} {2 3}
+  10 {SELECT x FROM t1 WHERE t1 MATCH 'a AND d'}          {1 2}
+  11 {SELECT x FROM t1 WHERE t1 MATCH 'a OR d'}           {1 2 3 4}
+  12 {SELECT x FROM t1 WHERE t1 MATCH 'a NOT d'}          {4}
+} {
+  do_execsql_test 3.$tn $stmt $res
+}
+
+do_execsql_test 4.0 {
+  CREATE TABLE t2(docid PRIMARY KEY, a, b, c);
+  CREATE INDEX i2 ON t2 USING fts5();
+  INSERT INTO t2 VALUES(136895, 'qkfl my qkfl krag gw', NULL, NULL);
+}
+
+do_execsql_test 4.1 {
+  SELECT docid FROM t2 WHERE t2 MATCH 'qkfl NEAR/2 gw';
+} {136895}
+
+do_execsql_test 6.0 {
+  CREATE TABLE t3(docid PRIMARY KEY, a, b, c);
+  CREATE INDEX i3 ON t3 USING fts5();
+  INSERT INTO t3 VALUES(123, 'fix the hash table', NULL, NULL);
+}
+do_execsql_test 5.1 {
+  SELECT docid FROM t3 WHERE t3 MATCH 'h*';
+} {123}
+
+do_execsql_test 6.0 {
+  BEGIN TRANSACTION;
+    CREATE TABLE t4(docid PRIMARY KEY, a);
+    CREATE INDEX i4 ON t4 USING fts5();
+    INSERT INTO "t4" VALUES(34, 'abc mnm xyz');
+    INSERT INTO "t4" VALUES(50, 'abc mnm xyz');
+  COMMIT;
+}
+do_execsql_test 6.1 {
+  SELECT docid FROM t4 WHERE t4 MATCH 'm*' 
+} {34 50}
+
+#-------------------------------------------------------------------------
+#
+do_execsql_test 7.0 {
+  BEGIN TRANSACTION;
+    CREATE TABLE t7(docid PRIMARY KEY, a, b, c);
+    CREATE INDEX i7 ON t7 USING fts5();
+    INSERT INTO t7 VALUES(1, 'a b c', 'd e f', 'a b c');
+    INSERT INTO t7 VALUES(2, 'x y z', 'a b c', 'a b c');
+  COMMIT;
+}
+
+foreach {tn expr res} {
+  1 {a}    {1 2}
+  2 {a:a}  {1}
+  3 {b:a}  {2}
+  4 {c:a}  {1 2}
+  5 {a:a*} {1}
+} {
+  do_execsql_test 7.$tn {SELECT docid FROM t7 WHERE t7 MATCH $expr} $res
+}
+
+#-------------------------------------------------------------------------
+#
+do_execsql_test 8.0 {
+  CREATE TABLE t8(a PRIMARY KEY, b, c);
+  CREATE INDEX i8 ON t8 USING fts5();
+  INSERT INTO t8 VALUES('one', 'a b c', 'a a a');
+  INSERT INTO t8 VALUES('two', 'd e f', 'b b b');
+}
+
+#do_execsql_test 8.1 {
+#  SELECT rank(t8) FROM t8 WHERE t8 MATCH 'b a'
+#}
+
+do_execsql_test 9.0 {
+  CREATE TABLE t9(a PRIMARY KEY, b);
+  CREATE INDEX i9 ON t9 USING fts5();
+  INSERT INTO t9 VALUES('one', 
+    'a b c d e f g h i j k l m n o p q r s t u v w x y z ' ||
+    'a b c d e f g h i j k l m n o p q r s t u v w x y z'
+  );
+}
+
+#do_execsql_test 9.1 {
+#  SELECT snippet(t9) FROM t9 WHERE t9 MATCH 'b'
+#} 
+
+do_execsql_test 10.1 {
+  CREATE TABLE ft(content);
+  CREATE INDEX fti ON ft USING fts5();
+}
+do_execsql_test 10.2 {
+  INSERT INTO ft VALUES('a b c d e');
+  INSERT INTO ft VALUES('f g h i j');
+}
+do_execsql_test 10.3 { SELECT rowid FROM ft WHERE ft MATCH 'c' } {1}
+do_execsql_test 10.4 { SELECT rowid FROM ft WHERE ft MATCH 'f' } {2}
+
+do_execsql_test 10.5 {
+  DELETE FROM ft;
+  CREATE TABLE ft2(a, b, c);
+  CREATE INDEX fti2 ON ft2 USING fts5();
+  INSERT INTO ft2 VALUES('1 2 3 4 5', '6 7 8 9 10', '11 12 13 14 15');
+  SELECT snippet(ft2, '[', ']', '...', -1, 3) FROM ft2 WHERE ft2 MATCH '5';
+} {{...3 4 [5]}}
+
+finish_test
+

@@ -1,0 +1,309 @@
+# 2001 September 15
+#
+# The author disclaims copyright to this source code.  In place of
+# a legal notice, here is a blessing:
+#
+#    May you do good and not evil.
+#    May you find forgiveness for yourself and forgive others.
+#    May you share freely, never taking more than you give.
+#
+#***********************************************************************
+# This file implements regression tests for SQLite library.  The
+# focus of this file is testing the sqlite4_num_*() interface.
+
+set testdir [file dirname $argv0]
+source $testdir/tester.tcl
+
+do_test num-1.1.1 {
+  sqlite4_num_compare 20 20 
+} {equal}
+do_test num-1.1.2 {
+  sqlite4_num_compare 20 2e1
+} {equal}
+do_test num-1.1.3 {
+  sqlite4_num_compare -00034 -3.4e1
+} {equal}
+do_test num-1.1.4 {
+  sqlite4_num_compare -inf +inf
+} {lesser}
+do_test num-1.1.5 {
+  sqlite4_num_compare -inf 0
+} {lesser}
+do_test num-1.1.6 {
+  sqlite4_num_compare inf 4
+} {greater}
+do_test num-1.1.7 {
+  sqlite4_num_compare nan 7
+} {incomparable}
+# Is +0 > -0?
+#do_test num-equal-1.1.4 {
+#  sqlite4_num_compare +0 -0
+#} {equal}
+
+do_test num-2.1.1 {
+  sqlite4_num_to_text [sqlite4_num_from_text 37]
+} {37}
+do_test num-2.1.2 {
+  sqlite4_num_to_text [sqlite4_num_from_text 37 2]
+} {37}
+do_test num-2.1.4 {
+  sqlite4_num_compare [sqlite4_num_from_text 2.9e2X 5] 290
+} {equal}
+do_test num-2.1.5 {
+  sqlite4_num_isnan [sqlite4_num_from_text inf 2]
+} {true}
+do_test num-2.1.6 {
+  sqlite4_num_isinf [sqlite4_num_from_text inf 3]
+} {true}
+
+do_test num-3.1.1 {
+  sqlite4_num_to_text [sqlite4_num_add 5 7]
+} {12}
+
+foreach {tn a b difference} {
+  1   9       3       6
+  2   5       12      -7
+  3   -9      -10     1
+  4   -2      4       -6
+  5   -48     -48     0
+  6   NaN     4       NaN
+  7   95      NaN     NaN
+  8   NaN     inf     NaN
+  9   inf     inf     NaN
+  10  -inf    -inf    NaN
+  11  inf     -inf    inf
+  12  -inf    955     -inf
+  13  -inf    inf     -inf
+} {
+  do_test num-4.1.$tn {
+   sqlite4_num_to_text [sqlite4_num_sub $a $b] 
+  } $difference
+}
+do_test num-4.2.1 {
+  sqlite4_num_compare [sqlite4_num_sub 1 1] [sqlite4_num_sub -1 -1]
+} {equal}
+
+
+foreach {tn a b product} {
+  1   9       8       72
+  2   NaN     inf     NaN
+  3   inf     NaN     NaN
+  4   inf     0       NaN
+  5   inf     -inf    -inf
+  6   NaN     0       NaN
+  7   NaN     1       NaN
+  8   NaN     -9      NaN
+  9   NaN     NaN     NaN
+} { 
+  do_test num-5.1.$tn {
+    sqlite4_num_to_text [sqlite4_num_mul $a $b]
+  } $product
+}
+foreach {tn a b product} {
+  1 1125899906842624 95367431640625   107374182400000000000000000000
+  1 95367431640625   1125899906842624 107374182400000000000000000000
+  2 40000000000      30000000000      1200000000000000000000
+} { 
+  do_test num-5.2.$tn {
+    sqlite4_num_compare [sqlite4_num_mul $a $b] $product
+  } {equal}
+}
+# 5.2: Overflow that depends on the product of the two least 
+# significant halves
+do_test num-5.2.1 {
+  sqlite4_num_mul 3 6148914691236517211
+} {sign:0 approx:1 e:1 m:1844674407370955163}
+do_test num-5.2.2 {
+  sqlite4_num_mul 3 6148914690091192593
+} {sign:0 approx:0 e:0 m:18446744070273577779}
+
+do_test num-6.1.1 {
+  sqlite4_num_to_text [sqlite4_num_div 6 5]
+} {1.2}
+do_test num-6.1.2 {
+  sqlite4_num_compare 2 [sqlite4_num_div 2 1]
+} {equal}
+do_test num-6.1.3 {
+  sqlite4_num_to_text [sqlite4_num_div 2 1]
+} {2}
+do_test num-6.1.4 {
+  sqlite4_num_to_text [sqlite4_num_div 22 10]
+} {2.2}
+
+#-------------------------------------------------------------------------
+# The following test cases - num-7.* - test the sqlite4_num_from_double()
+# API function.
+#
+foreach {tn in out} {
+  1     1.0                {sign:0 e:0   m:1}
+  2    -1.0                {sign:1 e:0   m:1}
+  3     1.5                {sign:0 e:-1  m:15}
+  4    -1.5                {sign:1 e:-1  m:15}
+  5     0.15               {sign:0 e:-2  m:15}
+  6    -0.15               {sign:1 e:-2  m:15}
+  7    45.345687           {sign:0 e:-6  m:45345687}
+  8    1000000000000000000 {sign:0 e:18  m:1}
+} {
+  do_test num-7.1.$tn {
+    set res [sqlite4_num_from_double $in]
+    list [lindex $res 0] [lindex $res 2] [lindex $res 3]
+  } [list [lindex $out 0] [lindex $out 1] [lindex $out 2]]
+}
+
+#-------------------------------------------------------------------------
+# Test the boundary conditions in sqlite4_num_from_text() for parsing 
+# values that can fit in a signed 64-bit integer variable. And others.
+# 
+foreach {tn in out} {
+  0     9223372036854775806 {sign:0 approx:0 e:0 m:9223372036854775806}
+  1     9223372036854775807 {sign:0 approx:0 e:0 m:9223372036854775807}
+  2    -9223372036854775808 {sign:1 approx:0 e:0 m:9223372036854775808}
+  3    -9223372036854775807 {sign:1 approx:0 e:0 m:9223372036854775807}
+  4    -9223372036854775806 {sign:1 approx:0 e:0 m:9223372036854775806}
+} {
+  do_test num-8.1.$tn { sqlite4_num_from_text $in } $out
+}
+
+foreach {tn in out} {
+  0     9223372036854775808 {sign:0 approx:1 e:1 m:922337203685477581}
+  1     9223372036854775809 {sign:0 approx:1 e:1 m:922337203685477581}
+  2     9223372036854775810 {sign:0 approx:0 e:1 m:922337203685477581}
+  3     9223372036854775811 {sign:0 approx:1 e:1 m:922337203685477581}
+
+  4    -9223372036854775809 {sign:1 approx:1 e:1 m:922337203685477581}
+  5    -9223372036854775810 {sign:1 approx:0 e:1 m:922337203685477581}
+  6    -9223372036854775811 {sign:1 approx:1 e:1 m:922337203685477581}
+} {
+  do_test num-8.2.$tn { sqlite4_num_from_text $in } $out
+}
+
+foreach {tn in out} {
+  0      2147483648 {sign:0 approx:0 e:0 m:2147483648}
+  1     -2147483648 {sign:1 approx:0 e:0 m:2147483648}
+} {
+  do_test num-8.3.$tn { sqlite4_num_from_text $in } $out
+}
+
+#-------------------------------------------------------------------------
+# Test parsing of values with decimal points.
+# 
+foreach {tn in out} {
+  0     1.5        {sign:0 approx:0 e:-1 m:15}
+  1     1.005      {sign:0 approx:0 e:-3 m:1005}
+  2     00000      {sign:0 approx:0 e:0  m:0}
+  3     00.000     {sign:0 approx:0 e:-3 m:0}
+  4     -1.005     {sign:1 approx:0 e:-3 m:1005}
+  5.1   1   {sign:0 approx:0 e:0 m:1}
+  5.2   1.0 {sign:0 approx:0 e:-1 m:10}
+  5.3   1.  {sign:0 approx:0 e:0 m:1}
+  5.4   1e0 {sign:0 approx:0 e:0 m:1}
+  5.5   1e1 {sign:0 approx:0 e:1 m:1}
+  5.6   1e2 {sign:0 approx:0 e:2 m:1}
+} {
+  do_test num-9.1.$tn { sqlite4_num_from_text $in } [list {*}$out]
+}
+
+#-------------------------------------------------------------------------
+# Test ignore-whitespace and prefix-only flags
+#
+foreach {tn in len flags out} {
+  0     {14 }      -1 _    true
+  1     {14 }      -1 w    false
+  2     {   14 }   -1 w    false
+  3     {14 }      2  _    false
+  4     {14 }      3  _    true
+  5     {14abc}    -1 _    true
+  6     {14abc}    -1 p    false
+  7     {+Inf   }  -1 p    false
+  8     {   14 z}  -1 w    true
+  9     {   14 z}  -1 wp   false
+} {
+  do_test num-9.2.$tn { 
+    sqlite4_num_isnan [sqlite4_num_from_text $in $len $flags]
+  } $out
+}
+
+#-------------------------------------------------------------------------
+# Test from UTF16BE text
+#
+foreach {tn in len out} {
+  0     274    -1   274
+  1     3e+484 -1   3e+484
+  2     2e1    3     2 
+  3     2e1    4     NaN 
+  4     2e1    5     NaN
+  5     2e1    6     20 
+} {
+  do_test num-9.3.$tn { 
+    sqlite4_num_to_text [sqlite4_num_from_text $in $len b]
+  } $out
+} 
+
+#-------------------------------------------------------------------------
+# Test from UTF16LE text
+#
+foreach {tn in len out} {
+  0     4639   -1    4639
+  1     5e+388 -1    5e+388 
+  2     2e1    3     NaN 
+  3     2e1    4     NaN 
+  4     2e1    5     20
+  5     2e1    6     20 
+} {
+  do_test num-9.4.$tn { 
+    sqlite4_num_to_text [sqlite4_num_from_text $in $len l]
+  } $out
+} 
+
+foreach {tn in out} {
+  0     50                                            50
+  1     -94                                           -94
+  2     {sign:0 approx:0 e:4 m:2}                     20000
+  3     9223372036854775807                           9223372036854775807
+  4     -9223372036854775808                          -9223372036854775808
+  5     {sign:0 approx:0 e:-1 m:51}                   ~5
+  6     {sign:0 approx:0 e:0 m:9223372036854775808}  ~9223372036854775807
+  7     9223372036854775808                          ~9223372036854775807
+  8     10000000000000000000                         ~9223372036854775807
+  9     -10000000000000000000                        ~-9223372036854775808
+  10    {sign:0 approx:0 e:50 m:244}                 ~9223372036854775807
+  11    {sign:1 approx:0 e:50 m:34220}               ~-9223372036854775808
+  12    50.1                                         ~50
+  13    10.9                                         ~10
+  14    .995                                         ~0
+  15    -93.9                                        ~-93
+  16    -12.1                                        ~-12
+  17    {sign:0 approx:1 e:0 m:4053}                 ~4053
+} {
+  do_test num-10.1.$tn { sqlite4_num_to_int64 $in } [list {*}$out]
+}
+
+foreach {tn in out} {
+  0     7093                                         7093
+  1     -98                                          -98
+  2     33.9                                         ~33
+  3     -438.4                                       ~-438
+  4     1e300                                        ~2147483647
+  5     -5000000000000                               ~-2147483648 
+  6     2147483647                                   2147483647 
+  7     -2147483648                                  -2147483648 
+  8     {sign:0 approx:1 e:4 m:2}                    ~20000
+  9     .00034                                       ~0
+  10    -.99                                         ~0
+} {
+  do_test num-11.1.$tn { sqlite4_num_to_int32 $in } [list {*}$out]
+}
+
+foreach {tn in real} {
+  0     4              false
+  1     -84.63         true
+  2     -Inf           true
+} {
+  do_test num-12.1-$tn { sqlite4_num_text_is_real $in } $real
+}
+
+
+#-------------------------------------------------------------------------
+finish_test
+
+

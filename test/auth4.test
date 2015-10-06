@@ -1,0 +1,200 @@
+# 2013 May 8
+#
+# The author disclaims copyright to this source code.  In place of
+# a legal notice, here is a blessing:
+#
+#    May you do good and not evil.
+#    May you find forgiveness for yourself and forgive others.
+#    May you share freely, never taking more than you give.
+#
+#***********************************************************************
+#
+# This file contains tests for the sqlite4_authorizer_push() and
+# sqlite4_authorizer_pop() API functions.
+#
+
+set testdir [file dirname $argv0]
+source $testdir/tester.tcl
+source $testdir/malloc_common.tcl
+set testprefix auth4
+
+ifcapable !auth { finish_test ; return }
+
+#--------------------------------------------------------------------
+# Test cases auth4-1.* test that when there are multiple authorizers
+# on the stack, they are invoked in order from most to least recently 
+# added until all have been invoked or one of them returns other than
+# SQLITE4_OK.
+#
+do_execsql_test 1.0 {
+  CREATE TABLE t1(x, y);
+  INSERT INTO t1 VALUES(1, 'one');
+  INSERT INTO t1 VALUES(2, 'two');
+}
+
+proc auth_callback {id code z1 z2 z3 z4} {
+  if {$code == "SQLITE4_READ" && $z1=="t1" && $z2=="y"} {
+    incr ::NAUTH
+    return [lindex $::AUTH $id]
+  }
+  return SQLITE4_OK
+}
+
+sqlite4_authorizer_push db {auth_callback 2}
+sqlite4_authorizer_push db {auth_callback 1}
+sqlite4_authorizer_push db {auth_callback 0}
+
+foreach {tn codes ncall res} {
+  1  {SQLITE4_OK SQLITE4_OK SQLITE4_OK}   3 {0 {1 one 2 two}}
+
+  2  {SQLITE4_OK SQLITE4_OK SQLITE4_DENY} 3 {1 {access to t1.y is prohibited}}
+  3  {SQLITE4_DENY SQLITE4_OK SQLITE4_OK} 1 {1 {access to t1.y is prohibited}}
+  4  {SQLITE4_OK SQLITE4_DENY SQLITE4_OK} 2 {1 {access to t1.y is prohibited}}
+
+  5  {SQLITE4_OK SQLITE4_OK SQLITE4_IGNORE} 3 {0 {1 {} 2 {}}}
+  6  {SQLITE4_IGNORE SQLITE4_OK SQLITE4_OK} 1 {0 {1 {} 2 {}}}
+  7  {SQLITE4_OK SQLITE4_IGNORE SQLITE4_OK} 2 {0 {1 {} 2 {}}}
+
+  8  {SQLITE4_OK SQLITE4_OK SQLITE4_ALLOW} 3 {0 {1 one 2 two}}
+  9  {SQLITE4_ALLOW SQLITE4_OK SQLITE4_OK} 1 {0 {1 one 2 two}}
+  10 {SQLITE4_OK SQLITE4_ALLOW SQLITE4_OK} 2 {0 {1 one 2 two}}
+
+} {
+  db cache flush
+
+  set ::AUTH $codes
+  set ::NAUTH 0
+
+  do_catchsql_test 1.$tn.1 { SELECT * FROM t1; } $res
+  do_test 1.$tn.2 { set ::NAUTH } $ncall
+}
+
+sqlite4_authorizer_pop db
+sqlite4_authorizer_pop db
+sqlite4_authorizer_pop db
+
+#--------------------------------------------------------------------
+# Test cases auth4-2.* test that the push and pop operations seem to
+# work correctly.
+#
+set ::STACK [list]
+proc auth_callback {id code z1 z2 z3 z4} {
+  if {$code == "SQLITE4_READ" && $z1=="t1" && $z2=="y"} {
+    lappend ::AUTH $id
+  }
+  return SQLITE4_OK
+}
+proc test_stack {} {
+  set ::AUTH [list]
+  db eval { SELECT * FROM t1 }
+  set ::AUTH
+}
+proc push {id} {
+  set ::STACK [concat $id $::STACK]
+  sqlite4_authorizer_push db [list auth_callback $id]
+}
+proc pop {} {
+  set ::STACK [lrange $::STACK 1 end]
+  catch { sqlite4_authorizer_pop db }
+}
+
+do_execsql_test 2.0 {
+  DROP TABLE IF EXISTS t1;
+  CREATE TABLE t1(x, y);
+  INSERT INTO t1 VALUES(1, 'one');
+}
+
+for {set i 1} {$i <= 100} {incr i} {
+  if { int(rand()*2.0) } {
+    pop
+  } else {
+    push [expr int(rand() * 500.0)]
+  }
+  do_test 2.$i { test_stack } $::STACK
+}
+
+#--------------------------------------------------------------------
+# Test that sqlite4_authorizer_pop() returns an error if the stack is
+# empty when it is called.
+#
+reset_db
+
+do_test 3.1 {
+  list [catch { sqlite4_authorizer_pop db } msg] $msg
+} {1 SQLITE4_ERROR}
+do_test 3.2 {
+  sqlite4_authorizer_push db xyz
+  sqlite4_authorizer_pop db
+} {}
+
+#--------------------------------------------------------------------
+# Test that authorizer destructors are invoked under the following
+# circumstances:
+#  
+#    1. When an authorizer is popped from the stack,
+#    2. When the database connection is closed, and
+#    3. When an error occurs within the sqlite4_authorizer_push() call.
+#
+reset_db
+
+do_test 4.1.1 {
+  set ::xyz_destroyed 0
+  sqlite4_authorizer_push db xyz {incr ::xyz_destroyed}
+  set ::xyz_destroyed
+} {0}
+do_test 4.1.2 {
+  sqlite4_authorizer_pop db
+  set ::xyz_destroyed
+} {1}
+do_test 4.1.3 {
+  set ::abc_destroyed 0
+  set ::xyz_destroyed 0
+  sqlite4_authorizer_push db abc {incr ::abc_destroyed}
+  sqlite4_authorizer_push db xyz {incr ::xyz_destroyed}
+  list $::abc_destroyed $::xyz_destroyed
+} {0 0}
+do_test 4.1.4 {
+  sqlite4_authorizer_pop db
+  list $::abc_destroyed $::xyz_destroyed
+} {0 1}
+do_test 4.1.5 {
+  sqlite4_authorizer_pop db
+  list $::abc_destroyed $::xyz_destroyed
+} {1 1}
+do_test 4.1.6 {
+  db close
+  list $::abc_destroyed $::xyz_destroyed
+} {1 1}
+
+reset_db
+
+do_test 4.2.1 {
+  set ::abc_destroyed 0
+  set ::xyz_destroyed 0
+  sqlite4_authorizer_push db abc {incr ::abc_destroyed}
+  sqlite4_authorizer_push db xyz {incr ::xyz_destroyed}
+  list $::abc_destroyed $::xyz_destroyed
+} {0 0}
+do_test 4.2.2 {
+  db close
+  list $::abc_destroyed $::xyz_destroyed
+} {1 1}
+
+# Normally we don't like to mix [do_faultsim_test] and friends with
+# ordinary (non fault-injection) tests. But this one is OK because
+# it runs very fast - sqlite4_authorizer_push() only calls malloc() once.
+#
+do_faultsim_test 4.3 -faults oom* -prep {
+  reset_db
+  set ::abc_destroyed 0
+} -body {
+  sqlite4_authorizer_push db abc {incr ::abc_destroyed}
+} -test {
+  faultsim_test_result {0 {}} {1 SQLITE4_NOMEM}
+  if {$testrc    && $::abc_destroyed!=1} {error "destructor not invoked"}
+  if {$testrc==0 && $::abc_destroyed!=0} {error "destructor was invoked"}
+}
+
+
+finish_test
+

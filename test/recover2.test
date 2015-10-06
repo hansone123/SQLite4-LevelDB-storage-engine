@@ -1,0 +1,68 @@
+# 2014 February 19
+#
+# The author disclaims copyright to this source code.  In place of
+# a legal notice, here is a blessing:
+#
+#    May you do good and not evil.
+#    May you find forgiveness for yourself and forgive others.
+#    May you share freely, never taking more than you give.
+#
+#***********************************************************************
+#
+# This file contains tests that verify that the bt backend can recover
+# data from the types of log files that might be left in the file-system
+# following an application crash.
+#
+
+set testdir [file dirname $argv0]
+source $testdir/tester.tcl
+source $testdir/malloc_common.tcl
+set ::testprefix recover2
+
+
+proc checkdb {db} {
+  $db one { SELECT (SELECT x FROM sum)==(SELECT md5sum(a, b) FROM t1); }
+}
+
+do_execsql_test 1.0 {
+  CREATE TABLE t1(a, b);
+  CREATE TABLE sum(x);
+
+  INSERT INTO t1 VALUES(randomblob(200), randomblob(200));
+  INSERT INTO t1 SELECT randomblob(200), randomblob(200) FROM t1;
+  INSERT INTO t1 SELECT randomblob(200), randomblob(200) FROM t1;
+  INSERT INTO t1 SELECT randomblob(200), randomblob(200) FROM t1;
+  INSERT INTO sum SELECT md5sum(a, b) FROM t1;
+}
+do_test 1.1 { checkdb db } 1
+
+for {set i 1} {$i<25} {incr i} {
+  set nRow [db one {SELECT count(*) FROM t1}]
+
+  do_execsql_test 1.2.$i.1 {
+    BEGIN;
+    INSERT INTO t1 SELECT randomblob(200), randomblob(200) FROM t1;
+    UPDATE sum SET x = (SELECT md5sum(a, b) FROM t1);
+    COMMIT;
+  } 
+
+  do_test 1.2.$i.2 { 
+    forcecopy test.db test.db2
+    forcecopy test.db-wal test.db2-wal
+
+    sqlite4 db2 test.db2
+    breakpoint
+    checkdb db2
+  } 1
+
+  do_test 1.2.$i.3 { 
+    execsql { SELECT count(*) FROM t1 } db2
+  } [expr $nRow*2]
+  db2 close
+
+  do_execsql_test 1.2.$i.4 { DELETE FROM t1 WHERE rowid>8 }
+}
+
+finish_test
+
+

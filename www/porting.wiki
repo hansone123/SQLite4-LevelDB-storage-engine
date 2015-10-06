@@ -1,0 +1,91 @@
+<title>Porting SQLite3 to SQLite4</title>
+<nowiki>
+
+<p>The following are notes on how to port an application from using SQLite3
+to use SQLite4:
+
+<ul>
+<li><p>Global change "sqlite3" to "sqlite4"
+
+<li><p>Global change "SQLITE_" to "SQLITE4_"
+
+<li><p>Add the sqlite4_env* parameter (probably NULL) as the first
+    argument to the following interfaces:
+<ul>
+<li> sqlite4_open()
+<li> sqlite4_malloc()
+<li> sqlite4_realloc()
+<li> sqlite4_free()
+<li> sqlite4_mprintf()
+<li> sqlite4_vmprintf()
+<li> sqlite4_log()
+<li> sqlite4_randomness()
+</ul>
+
+<li><p>Convert uses of sqlite3_prepare_v2() to sqlite4_prepare().
+
+<li><p>Convert all uses of sqlite4_open_v2() to sqlite4_open() (with
+       corresponding parameter changes.)
+
+<li><p>Check all uses of sqlite4_snprintf() and sqlite4_vnsprintf() for
+    the new function signature:
+<ul>
+<li>The order of the first two arguments is reversed
+<li>Both routines return the length of the result string.
+</ul>
+</ul>
+
+<h3> UTF-16 Functions </h3>
+
+<p>
+Many SQLite3 APIs come in two flavours - UTF-8 and UTF-16. For example,
+sqlite3_complete() and sqlite3_complete16(). In most cases, the only 
+difference between the two versions is that one interprets or returns
+text encoded using UTF-8, and the other using native byte-order UTF-16.
+For SQLite4, all UTF-16 APIs have been removed except the following:
+
+<ul>
+  <li> sqlite4_column_text16()
+  <li> sqlite4_value_text16()
+  <li> sqlite4_bind_text16()
+  <li> sqlite4_result_text16()
+  <li> sqlite4_result_error16()
+</ul>
+
+<p>
+In place of the removed APIs, SQLite4 offers an API - sqlite4_translate() -
+to translate from UTF-16 to UTF-8 and vice-versa. For example, to obtain
+the current error message formated using UTF-16 (available in SQLite3
+by calling sqlite3_errmsg16()), the following:
+
+<pre>
+  u16 *pError;                    /* Pointer to translated error message */
+  sqlite4_buffer buf;             /* Buffer to manage memory used for pError */
+
+  /* Initialize a buffer object. Then populate it with the UTF-16 translation
+  ** of the UTF-8 error message returned by sqlite4_errmsg().  */
+  sqlite4_buffer_init(&buf, 0);
+  pError = sqlite4_translate(
+      &buf, sqlite4_errmsg(db), -1, SQLITE4_TRANSLATE_UTF8_UTF16
+  );
+
+  if( pError==0 ){
+    /* An out-of-memory error has occurred */
+  }else{
+    /* pError now points to a buffer containing the current error message
+    ** encoded using native byte-order UTF-16. Do something with it! */
+  }
+
+  /* Free the contents of the buffer (and hence pError) */
+  sqlite4_buffer_clear(&buf);
+</pre>
+
+<h3> CHECK Constraint Evaluation </h3>
+
+<p>
+In SQLite4, CHECK constraints are evaluated after affinities are applied
+to new column values. In SQLite3, the CHECK constraints are evaluated before
+affinities are applied.
+
+
+
