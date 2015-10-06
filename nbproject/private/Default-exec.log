@@ -22,7 +22,7 @@ called: /usr/bin/ld
 	-plugin
 	/usr/lib/gcc/x86_64-linux-gnu/4.9/liblto_plugin.so
 	-plugin-opt=/usr/lib/gcc/x86_64-linux-gnu/4.9/lto-wrapper
-	-plugin-opt=-fresolution=/tmp/ccRHOhOv.res
+	-plugin-opt=-fresolution=/tmp/ccoviyFu.res
 	-plugin-opt=-pass-through=-lgcc
 	-plugin-opt=-pass-through=-lgcc_s
 	-plugin-opt=-pass-through=-lc
@@ -52,7 +52,7 @@ called: /usr/bin/ld
 	-L/usr/lib/x86_64-linux-gnu
 	-L/usr/lib/../lib
 	-L/usr/lib/gcc/x86_64-linux-gnu/4.9/../../..
-	/tmp/cc6zKlxw.o
+	/tmp/ccRjBQUv.o
 	-lgcc
 	--as-needed
 	-lgcc_s
@@ -81,7 +81,7 @@ called: /usr/bin/ld
 	-plugin
 	/usr/lib/gcc/x86_64-linux-gnu/4.9/liblto_plugin.so
 	-plugin-opt=/usr/lib/gcc/x86_64-linux-gnu/4.9/lto-wrapper
-	-plugin-opt=-fresolution=/tmp/ccersSzJ.res
+	-plugin-opt=-fresolution=/tmp/ccjYhHyA.res
 	-plugin-opt=-pass-through=-lgcc
 	-plugin-opt=-pass-through=-lgcc_s
 	-plugin-opt=-pass-through=-lc
@@ -111,7 +111,7 @@ called: /usr/bin/ld
 	-L/usr/lib/x86_64-linux-gnu
 	-L/usr/lib/../lib
 	-L/usr/lib/gcc/x86_64-linux-gnu/4.9/../../..
-	/tmp/cchD2Xyz.o
+	/tmp/ccLmgNtq.o
 	-lgcc
 	--as-needed
 	-lgcc_s
@@ -2267,7 +2267,7 @@ called: /usr/bin/ld
 	-plugin
 	/usr/lib/gcc/x86_64-linux-gnu/4.9/liblto_plugin.so
 	-plugin-opt=/usr/lib/gcc/x86_64-linux-gnu/4.9/lto-wrapper
-	-plugin-opt=-fresolution=/tmp/cc9KC8k2.res
+	-plugin-opt=-fresolution=/tmp/ccxbfABf.res
 	-plugin-opt=-pass-through=-lgcc
 	-plugin-opt=-pass-through=-lgcc_s
 	-plugin-opt=-pass-through=-lc
@@ -2297,7 +2297,7 @@ called: /usr/bin/ld
 	-L/usr/lib/x86_64-linux-gnu
 	-L/usr/lib/../lib
 	-L/usr/lib/gcc/x86_64-linux-gnu/4.9/../../..
-	/tmp/ccGRwXkW.o
+	/tmp/ccggGYaM.o
 	libsqlite4.a
 	-lm
 	-lpthread

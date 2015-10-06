@@ -36,12 +36,12 @@ gcc -g -O2 -fPIC  -DNDEBUG=1 -DHAVE_FDATASYNC=1 -DHAVE_GMTIME_R -DHAVE_LOCALTIME
 gcc -g -O2 -fPIC  -DNDEBUG=1 -DHAVE_FDATASYNC=1 -DHAVE_GMTIME_R -DHAVE_LOCALTIME_R -DHAVE_MALLOC_USABLE_SIZE -DHAVE_USLEEP -DSQLITE4_OMIT_VIRTUALTABLE=1 -DSQLITE4_OMIT_XFER_OPT -I. -I./src -I.  -I./ext/rtree -I./ext/icu -I./ext/fts3 -I./ext/async -c src/kv.c
 gcc -g -O2 -fPIC  -DNDEBUG=1 -DHAVE_FDATASYNC=1 -DHAVE_GMTIME_R -DHAVE_LOCALTIME_R -DHAVE_MALLOC_USABLE_SIZE -DHAVE_USLEEP -DSQLITE4_OMIT_VIRTUALTABLE=1 -DSQLITE4_OMIT_XFER_OPT -I. -I./src -I.  -I./ext/rtree -I./ext/icu -I./ext/fts3 -I./ext/async -c src/kvlsm.c
 gcc -g -O2 -fPIC  -DNDEBUG=1 -DHAVE_FDATASYNC=1 -DHAVE_GMTIME_R -DHAVE_LOCALTIME_R -DHAVE_MALLOC_USABLE_SIZE -DHAVE_USLEEP -DSQLITE4_OMIT_VIRTUALTABLE=1 -DSQLITE4_OMIT_XFER_OPT -I. -I./src -I.  -I./ext/rtree -I./ext/icu -I./ext/fts3 -I./ext/async -c src/kvldb.c
-src/kvldb.c: In function ‘kvldbKey’:
-src/kvldb.c:357:11: warning: assignment from incompatible pointer type
-     paKey = (const void **)leveldb_iter_key(pCsr->pCsr, (void *)pN);
-           ^
+src/kvldb.c: In function ‘kvldbSeek’:
+src/kvldb.c:342:17: warning: format ‘%d’ expects argument of type ‘int’, but argument 3 has type ‘size_t’ [-Wformat=]
+                 printf("\nnKey:%d\trKeysize:%d\t", nKey, rKeysize);
+                 ^
 src/kvldb.c: In function ‘kvldbData’:
-src/kvldb.c:380:11: warning: assignment discards ‘const’ qualifier from pointer target type
+src/kvldb.c:499:11: warning: assignment discards ‘const’ qualifier from pointer target type
      pData = leveldb_iter_value(pCsr->pCsr, &nData);
            ^
 gcc -g -O2 -fPIC  -DNDEBUG=1 -DHAVE_FDATASYNC=1 -DHAVE_GMTIME_R -DHAVE_LOCALTIME_R -DHAVE_MALLOC_USABLE_SIZE -DHAVE_USLEEP -DSQLITE4_OMIT_VIRTUALTABLE=1 -DSQLITE4_OMIT_XFER_OPT -I. -I./src -I.  -I./ext/rtree -I./ext/icu -I./ext/fts3 -I./ext/async -c src/kvmem.c

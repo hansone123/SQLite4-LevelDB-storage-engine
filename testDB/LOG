@@ -1,3 +1,5 @@
-2015/10/06-18:13:39.657168 7ffff7fdb740 Recovering log #18
-2015/10/06-18:13:39.668945 7ffff7fdb740 Delete type=3 #17
-2015/10/06-18:13:39.668984 7ffff7fdb740 Delete type=0 #18
+2015/10/06-21:07:02.162680 7ffff7fdb740 Recovering log #23
+2015/10/06-21:07:02.162750 7ffff7fdb740 Level-0 table #26: started
+2015/10/06-21:07:02.165554 7ffff7fdb740 Level-0 table #26: 176 bytes OK
+2015/10/06-21:07:02.175693 7ffff7fdb740 Delete type=0 #23
+2015/10/06-21:07:02.175733 7ffff7fdb740 Delete type=3 #21
