@@ -675,7 +675,10 @@ int sqlite4VdbeExec(
       memAboutToChange(p, &aMem[pOp->p3]);
     }
 #endif
-  
+    printf("\n/**  VDBE OPCODE: %d\n", pOp->opcode);
+    printf("/**\t#p1: %d   #p2: %d   #p3: %d   #p4type: %d   #p5: %d\n",pOp->p1, pOp->p2, pOp->p3, pOp->p4type, pOp->p5);
+
+            
     switch( pOp->opcode ){
 
 /*****************************************************************************
@@ -2171,7 +2174,8 @@ case OP_MakeRecord: {
   u8 aSeq[10];           /* Encoded sequence number */
   int nSeq;              /* Size of sequence number in bytes */
   u64 iSeq;              /* Sequence number, if any */
-
+  
+  
   do{
     bRepeat = 0;
     zAffinity = pOp->p4type==P4_INT32 ? 0 : pOp->p4.z;
@@ -2213,7 +2217,11 @@ case OP_MakeRecord: {
         }while( iSeq );
         aSeq[sizeof(aSeq)-nSeq] |= 0x80;
       }
-
+        printf("/**\tpC->iRoot: %d\n", pC->iRoot);
+        printf("/**\tKeyInfo: \n");
+        printf("/**        nField: %d\n", pC->pKeyInfo->nField);
+        printf("/**        nPK: %d\n", pC->pKeyInfo->nPK);
+        printf("/**        nData: %d\n", pC->pKeyInfo->nData);
       /* Generate the key encoding */
       rc = sqlite4VdbeEncodeKey(
         db, pData0, nIn, pC->iRoot, pC->pKeyInfo, &aRec, &nRec, nSeq
@@ -2649,16 +2657,22 @@ case OP_OpenWrite: {
     }
   }
   if( pOp->p4type==P4_KEYINFO ){
+      printf("P4 is KEYINFO\n");
     pKeyInfo = pOp->p4.pKeyInfo;
     nField = pKeyInfo->nField+1;
+    printf("pKeyInfo->nField: %d\n", pKeyInfo->nField);
+    printf("pKeyInfo->nData: %d\n", pKeyInfo->nData);
+    printf("pKeyInfo->nPK: %d\n", pKeyInfo->nPK);
   }else if( pOp->p4type==P4_INT32 ){
     nField = pOp->p4.i;
+    printf("nField: %d\n", nField);
   }
   assert( pOp->p1>=0 );
   pCur = allocateCursor(p, pOp->p1, nField, iDb, 1);
   if( pCur==0 ) goto no_mem;
   pCur->nullRow = 1;
   pCur->iRoot = p2;
+  printf("pCur->iRoot: %d\n", pCur->iRoot);
   rc = sqlite4KVStoreOpenCursor(pX, &pCur->pKVCur);
   pCur->pKeyInfo = pKeyInfo;
   break;
@@ -3139,7 +3153,7 @@ case OP_NewRowid: {           /* out2-prerelease */
   int n;                   /* Number of bytes decoded */
   i64 i3;                  /* Integer value from pIn3 */
   sqlite4_num vNum;        /* Intermediate result */
-
+  
   v = 0;
   assert( pOp->p1>=0 && pOp->p1<p->nCursor );
   pC = p->apCsr[pOp->p1];
@@ -3173,11 +3187,18 @@ case OP_NewRowid: {           /* out2-prerelease */
     rc = sqlite4KVCursorKey(pC->pKVCur, &aKey, &nKey);
     if( rc==SQLITE4_OK ){
       n = sqlite4GetVarint64((u8 *)aKey, nKey, (u64 *)&v);
+      printf("n: %d\n", n);
+      printf("v: %d\n", v);
       if( n==0 ) rc = SQLITE4_CORRUPT_BKPT;
       if( v!=pC->iRoot ) rc = SQLITE4_CORRUPT_BKPT;
     }
     if( rc==SQLITE4_OK ){
       n = sqlite4VdbeDecodeNumericKey(&aKey[n], nKey-n, &vNum);
+      printf("n: %d\n", n);
+      printf("vNum->u.num->approx: %x\n",vNum.approx);
+      printf("vNum->u.num->e: %x\n",vNum.e);
+      printf("vNum->u.num->m: %d\n",vNum.m);
+      printf("vNum->u.num->sign: %x\n",vNum.sign);
       if( n==0 || (v = sqlite4_num_to_int64(vNum,0))==LARGEST_INT64 ){
         assert( 0 );
         rc = SQLITE4_FULL;
@@ -3201,8 +3222,16 @@ case OP_NewRowid: {           /* out2-prerelease */
     if( v<i3 ) v = i3;
   }
 #endif
+  
+  
   pOut->flags = MEM_Int;
   pOut->u.num = sqlite4_num_from_int64(v+1);
+  printf("v: %d\n", v);
+  printf("pOut->u.num->approx: %x\n",pOut->u.num.approx);
+  printf("pOut->u.num->e: %x\n",pOut->u.num.e);
+  printf("pOut->u.num->m: %d\n",pOut->u.num.m);
+  printf("pOut->u.num->sign: %x\n",pOut->u.num.sign);
+  
   break;
 }
 
@@ -3216,7 +3245,7 @@ case OP_NewRowid: {           /* out2-prerelease */
 **   * the largest index number still visible in the database using the 
 **     LEFAST query mode used by OP_NewRowid in database P2.
 */
-case OP_NewIdxid: {          /* in1 */
+case OP_NewIdxid: {          /* fin1 */
   u64 iMax;
   i64 i1;
   KVStore *pKV;

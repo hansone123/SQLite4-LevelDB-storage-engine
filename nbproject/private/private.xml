@@ -9,6 +9,15 @@
     </data>
     <editor-bookmarks xmlns="http://www.netbeans.org/ns/editor-bookmarks/2" lastBookmarkId="0"/>
     <open-files xmlns="http://www.netbeans.org/ns/projectui-open-files/2">
-        <group/>
+        <group>
+            <file>file:/home/hanson/Desktop/sqlite4DebugInfo/SQLite4-LevelDB-storage-engine/src/vdbeInt.h</file>
+            <file>file:/home/hanson/Desktop/sqlite4DebugInfo/SQLite4-LevelDB-storage-engine/src/kvldb.c</file>
+            <file>file:/home/hanson/Desktop/sqlite4DebugInfo/SQLite4-LevelDB-storage-engine/src/vdbecursor.c</file>
+            <file>file:/home/hanson/Desktop/sqlite4DebugInfo/SQLite4-LevelDB-storage-engine/src/vdbe.c</file>
+            <file>file:/home/hanson/Desktop/sqlite4DebugInfo/SQLite4-LevelDB-storage-engine/src/kv.c</file>
+            <file>file:/home/hanson/Desktop/sqlite4DebugInfo/SQLite4-LevelDB-storage-engine/src/vdbe.h</file>
+            <file>file:/home/hanson/Desktop/sqlite4DebugInfo/SQLite4-LevelDB-storage-engine/src/sqliteInt.h</file>
+            <file>file:/home/hanson/Desktop/sqlite4DebugInfo/SQLite4-LevelDB-storage-engine/src/vdbecodec.c</file>
+        </group>
     </open-files>
 </project-private>

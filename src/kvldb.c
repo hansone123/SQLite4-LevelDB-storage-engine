@@ -511,7 +511,7 @@ static int kvldbData(
           if( (ofst+n)>nData ) nOut = nData - ofst;
           if( nOut<0 ) nOut = 0;
 
-          *paData = &((u8 *)pData)[n];
+          *paData = &((u8 *)pData)[ofst];
           *pNData = nOut;
         }
     }

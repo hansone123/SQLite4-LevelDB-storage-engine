@@ -165,7 +165,6 @@
         <in>rowset.c</in>
         <in>select.c</in>
         <in>shell.c</in>
-        <in>sqlite4.h</in>
         <in>sqliteInt.h</in>
         <in>sqliteLimit.h</in>
         <in>status.c</in>
